@@ -1,5 +1,7 @@
 # Kiwi.jl
 
+[![](https://img.shields.io/badge/docs-dev-blue.svg)](https://srossd.github.io/Kiwi.jl/)
+
 A Julia package for computations with irreducible representations of Lie algebras.
 
 ## Installation
