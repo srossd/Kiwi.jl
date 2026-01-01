@@ -169,14 +169,14 @@ using Kiwi
         @test all(wm -> wm.weight isa Weight, char)
     end
     
-    @testset "LazyCharacter" begin
-        # Test LazyCharacter against Character
+    @testset "Lazy Character Evaluation" begin
+        # Test lazy character evaluation against eager evaluation
         
         # Small representation: SU(3) fundamental
         g1 = A_series(2)
         rep1 = Irrep(g1, [1, 0])
         char1 = character(rep1)
-        lazy1 = LazyCharacter(rep1)
+        lazy1 = character(rep1; lazy=true)
         
         # Test that lazy and full give same multiplicities
         for wm in char1
@@ -191,7 +191,7 @@ using Kiwi
         g2 = A_series(2)
         rep2 = adjoint_irrep(g2)
         char2 = character(rep2)
-        lazy2 = LazyCharacter(rep2)
+        lazy2 = character(rep2; lazy=true)
         
         # Test all weights match
         for wm in char2
@@ -207,7 +207,7 @@ using Kiwi
         g3 = A_series(4)
         rep3 = Irrep(g3, [1, 1, 1, 1])
         char3 = character(rep3)
-        lazy3 = LazyCharacter(rep3)
+        lazy3 = character(rep3; lazy=true)
         
         # Test highest weight
         hw = highest_weight(rep3)
@@ -233,7 +233,7 @@ using Kiwi
         g4 = B_series(2)
         rep4 = Irrep(g4, [1, 0])
         char4 = character(rep4)
-        lazy4 = LazyCharacter(rep4)
+        lazy4 = character(rep4; lazy=true)
         
         for wm in char4
             @test lazy4[wm.weight] == wm.multiplicity

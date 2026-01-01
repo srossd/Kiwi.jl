@@ -44,7 +44,7 @@ char_adj[w]  # 2 (the zero weight has multiplicity 2 in the adjoint)
 
 ## Lazy Characters
 
-For large representations, `LazyCharacter` computes multiplicities on demand without computing the full character:
+For large representations, we can set `lazy=true` to compute multiplicities on demand without computing the full character:
 
 ```@example lazy
 using Kiwi
@@ -56,7 +56,7 @@ rep = Irrep(e6, [2, 1, 0, 0, 0, 1])
 println("Dimension: ", dimension(rep))
 
 # Create lazy character (instant)
-lazy_char = LazyCharacter(rep)
+lazy_char = character(rep; lazy=true)
 ```
 
 Query specific weights quickly:

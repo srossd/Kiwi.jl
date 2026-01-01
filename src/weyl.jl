@@ -7,6 +7,56 @@ for understanding the structure of representations.
 """
 
 """
+    WeylWord
+
+Represents a sequence of simple Weyl reflections as a word in the Weyl group.
+
+A Weyl word is stored as a vector of integers, where each integer i represents
+the simple reflection s_i corresponding to the i-th simple root.
+
+# Fields
+- `algebra::LieAlgebra`: The Lie algebra
+- `word::Vector{Int}`: The sequence of simple reflection indices
+
+# Example
+```julia
+g = A_series(2)
+w = WeylWord(g, [1, 2, 1])  # s_1 · s_2 · s_1 (rightmost applied first)
+```
+"""
+struct WeylWord
+    algebra::LieAlgebra
+    word::Vector{Int}
+    
+    function WeylWord(algebra::LieAlgebra, word::Vector{Int})
+        # Validate that all indices are in valid range
+        n = lie_rank(algebra)
+        if any(i < 1 || i > n for i in word)
+            error("All reflection indices must be between 1 and $n")
+        end
+        new(algebra, word)
+    end
+end
+
+# Convenient constructor with varargs
+WeylWord(algebra::LieAlgebra, indices::Int...) = WeylWord(algebra, collect(indices))
+
+# Display
+function Base.show(io::IO, w::WeylWord)
+    if isempty(w.word)
+        print(io, "WeylWord(identity)")
+    else
+        print(io, "WeylWord([$(join(w.word, ", "))])")
+    end
+end
+
+# Equality
+Base.:(==)(w1::WeylWord, w2::WeylWord) = w1.algebra == w2.algebra && w1.word == w2.word
+
+# Length
+Base.length(w::WeylWord) = length(w.word)
+
+"""
     weyl_reflection(weight::Weight, root::Weight)
 
 Reflect a weight across the hyperplane perpendicular to a root.
@@ -69,6 +119,97 @@ function simple_reflection(weight::Weight, i::Int)
     end
     
     return weyl_reflection(weight, roots[i])
+end
+
+"""
+    weyl_reflection(weight::Weight, w::WeylWord)
+
+Apply a sequence of simple Weyl reflections to a weight.
+
+The word is applied right-to-left (i.e., rightmost reflection is applied first).
+For a WeylWord with word [i₁, i₂, ..., iₖ], this computes:
+    s_{i₁} · s_{i₂} · ... · s_{iₖ}(weight)
+
+# Arguments
+- `weight`: The weight to reflect
+- `w`: The Weyl word specifying the sequence of reflections
+
+# Returns
+A new `Weight` object after applying all reflections.
+
+# Example
+```julia
+g = A_series(2)
+λ = Weight(g, [1, 0])
+w = WeylWord(g, [1, 2, 1])
+λ_reflected = weyl_reflection(λ, w)
+```
+"""
+function weyl_reflection(weight::Weight, w::WeylWord)
+    @assert weight.algebra == w.algebra "Weight and WeylWord must be from the same algebra"
+    
+    result = weight
+    # Apply reflections from right to left
+    for i in reverse(w.word)
+        result = simple_reflection(result, i)
+    end
+    
+    return result
+end
+
+"""
+    longest_weyl_word(algebra::LieAlgebra)
+
+Compute the longest element w₀ of the Weyl group.
+
+The longest element is the unique element that sends all positive roots to negative roots.
+It is returned as a WeylWord.
+
+The algorithm starts with a weight with all coordinates -1 (in the anti-dominant chamber)
+and reflects it to the dominant chamber using simple reflections, recording the sequence.
+
+# Arguments
+- `algebra`: The Lie algebra
+
+# Returns
+A `WeylWord` representing the longest element.
+
+# Example
+```julia
+g = A_series(2)
+w0 = longest_weyl_word(g)
+# For A_2, this might be [1, 2, 1] (one of several equivalent reduced words)
+```
+"""
+function longest_weyl_word(algebra::LieAlgebra)
+    n = lie_rank(algebra)
+    
+    # Start with weight [-1, -1, ..., -1] in fundamental weight basis
+    weight = Weight(algebra, fill(-1, n))
+    result = Int[]
+    
+    # Reflect until all coordinates are non-negative
+    iterations = 0
+    
+    while !is_dominant(weight)
+        # Find first index where weight has negative inner product with simple root
+        roots = simple_roots(algebra)
+        idx = findfirst(i -> inner_product(weight, roots[i]) < 0, 1:n)
+        
+        if idx === nothing
+            break
+        end
+        
+        # Apply reflection
+        weight = simple_reflection(weight, idx)
+        
+        # Prepend to result (since we're building the word backwards)
+        pushfirst!(result, idx)
+        
+        iterations += 1
+    end
+    
+    return WeylWord(algebra, result)
 end
 
 """

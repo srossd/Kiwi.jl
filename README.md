@@ -54,6 +54,6 @@ length(char)                 # 7 (number of distinct weights)
 # For large representations, use lazy characters
 e6 = E_series(6)
 large_rep = Irrep(e6, [2, 1, 0, 0, 0, 1])
-lazy = LazyCharacter(large_rep)
+lazy = character(large_rep; lazy=true)
 lazy[highest_weight(large_rep)]  # Query specific weight multiplicities
 ```

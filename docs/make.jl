@@ -7,11 +7,11 @@ makedocs(
         prettyurls = get(ENV, "CI", "false") == "true",
         canonical = "https://srossd.github.io/Kiwi.jl",
         assets = String[],
+        repolink = "https://github.com/srossd/Kiwi.jl",
     ),
     modules = [Kiwi],
-    repo = "github.com/srossd/Kiwi.jl.git",
     checkdocs = :none,  # Don't require all docstrings to be documented
-    warnonly = [:cross_references, :missing_docs, :example_block],  # Allow warnings
+    warnonly = [:cross_references, :missing_docs, :example_block, :autodocs_block],  # Allow warnings
     pages = [
         "Home" => "index.md",
         "User Guide" => [

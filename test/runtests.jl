@@ -7,4 +7,5 @@ using Kiwi
     include("test_characters.jl")
     include("test_weyl.jl")
     include("test_tensor_products.jl")
+    include("test_symmetric.jl")
 end

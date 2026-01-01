@@ -188,3 +188,154 @@ using Kiwi
         end
     end
 end
+
+@testset "Plethysms" begin
+    @testset "Symmetric Powers" begin
+        g = A_series(2)  # SU(3)
+        fund = Irrep(g, 1, 0)
+        
+        # S²(3) = [2,0] (symmetric square)
+        sym2 = symmetric_power(2, fund)
+        @test length(sym2.components) == 1
+        @test haskey(sym2.components, Irrep(g, 2, 0))
+        @test dimension(sym2) == 6  # dim(3) * (dim(3) + 1) / 2
+        
+        # S³(3) = [3,0] (symmetric cube)
+        sym3 = symmetric_power(3, fund)
+        @test length(sym3.components) == 1
+        @test haskey(sym3.components, Irrep(g, 3, 0))
+        @test dimension(sym3) == 10  # binomial(3+3-1, 3)
+        
+        # S¹(3) = [1,0] (identity)
+        sym1 = symmetric_power(1, fund)
+        @test length(sym1.components) == 1
+        @test haskey(sym1.components, fund)
+        @test dimension(sym1) == 3
+    end
+    
+    @testset "Antisymmetric Powers" begin
+        g = A_series(2)  # SU(3)
+        fund = Irrep(g, 1, 0)
+        
+        # Λ²(3) = [0,1] (antisymmetric square)
+        alt2 = antisymmetric_power(2, fund)
+        @test length(alt2.components) == 1
+        @test haskey(alt2.components, Irrep(g, 0, 1))
+        @test dimension(alt2) == 3  # dim(3) * (dim(3) - 1) / 2
+        
+        # Λ³(3) = [0,0] (top form, trivial)
+        alt3 = antisymmetric_power(3, fund)
+        @test length(alt3.components) == 1
+        @test haskey(alt3.components, Irrep(g, 0, 0))
+        @test dimension(alt3) == 1
+        
+        # Λ¹(3) = [1,0] (identity)
+        alt1 = antisymmetric_power(1, fund)
+        @test length(alt1.components) == 1
+        @test haskey(alt1.components, fund)
+        @test dimension(alt1) == 3
+    end
+    
+    @testset "Symmetric Power of Adjoint" begin
+        g = A_series(2)
+        adj = Irrep(g, 1, 1)
+        
+        # S²(adj) should decompose into multiple irreps
+        sym2 = symmetric_power(2, adj)
+        @test dimension(sym2) == 36  # 8 * 9 / 2
+        
+        # Check it contains the trivial and adjoint
+        @test haskey(sym2.components, Irrep(g, 0, 0))
+        @test haskey(sym2.components, adj)
+        
+        # S³(adj) - more complex decomposition
+        sym3 = symmetric_power(3, adj)
+        @test dimension(sym3) == 120  # 8 * 9 * 10 / 6
+        @test length(sym3.components) >= 5  # Should have multiple components
+    end
+    
+    @testset "General Plethysm" begin
+        g = A_series(2)
+        fund = Irrep(g, 1, 0)
+        
+        # [2,1] representation of S₃ applied to fundamental
+        rho = SymmetricIrrep([2, 1])
+        result = plethysm(fund, rho)
+        
+        # This should give the adjoint [1,1]
+        @test length(result.components) == 1
+        @test haskey(result.components, Irrep(g, 1, 1))
+        @test dimension(result) == 8
+        
+        # [1,1,1] is same as Λ³
+        rho_alt3 = SymmetricIrrep([1, 1, 1])
+        result = plethysm(fund, rho_alt3)
+        alt3_direct = antisymmetric_power(3, fund)
+        @test result.components == alt3_direct.components
+    end
+    
+    @testset "Plethysm Dimension Consistency" begin
+        # For SU(2), test several cases
+        g = A_series(1)
+        fund = Irrep(g, 1)
+        
+        # S²(2) should have dimension 3
+        sym2 = symmetric_power(2, fund)
+        @test dimension(sym2) == 3
+        
+        # Λ²(2) should have dimension 1
+        alt2 = antisymmetric_power(2, fund)
+        @test dimension(alt2) == 1
+        
+        # S³(2) should have dimension 4
+        sym3 = symmetric_power(3, fund)
+        @test dimension(sym3) == 4
+    end
+    
+    @testset "Different Lie Algebras" begin
+        # Test plethysms work for different Lie algebra types
+        
+        # B_2 (SO(5))
+        g_b = B_series(2)
+        vec_b = Irrep(g_b, 1, 0)
+        sym2_b = symmetric_power(2, vec_b)
+        @test dimension(sym2_b) == 15  # 5 * 6 / 2
+        
+        # C_2 (Sp(4))
+        g_c = C_series(2)
+        fund_c = Irrep(g_c, 1, 0)
+        sym2_c = symmetric_power(2, fund_c)
+        @test dimension(sym2_c) == 10  # 4 * 5 / 2
+        
+        # G_2
+        g_g = G_series(2)
+        fund_g = Irrep(g_g, 1, 0)
+        sym2_g = symmetric_power(2, fund_g)
+        @test dimension(sym2_g) == 28  # 7 * 8 / 2
+    end
+    
+    @testset "Plethysm Properties" begin
+        g = A_series(2)
+        fund = Irrep(g, 1, 0)
+        
+        # S⁰ should give trivial (not implemented, but conceptually)
+        # S¹ should be identity
+        sym1 = symmetric_power(1, fund)
+        @test sym1.components[fund] == 1
+        
+        # Λ⁰ should give trivial (conceptually, dimension 1)
+        # Λ¹ should be identity
+        alt1 = antisymmetric_power(1, fund)
+        @test alt1.components[fund] == 1
+        
+        # Dimension formula: binomial(n+k-1, k) for Sᵏ(n)
+        # For S²(3): binomial(3+2-1, 2) = binomial(4, 2) = 6
+        sym2 = symmetric_power(2, fund)
+        @test dimension(sym2) == binomial(3+2-1, 2)
+        
+        # Dimension formula: binomial(n, k) for Λᵏ(n)
+        # For Λ²(3): binomial(3, 2) = 3
+        alt2 = antisymmetric_power(2, fund)
+        @test dimension(alt2) == binomial(3, 2)
+    end
+end

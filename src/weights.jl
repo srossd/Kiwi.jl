@@ -28,6 +28,8 @@ Base.:*(w::Weight, scalar::Real) = scalar * w
 Base.:(==)(w1::Weight, w2::Weight) = w1.algebra == w2.algebra && w1.coordinates == w2.coordinates
 Base.hash(w::Weight, h::UInt) = hash((w.algebra, w.coordinates), h)
 
+Base.getindex(w::Weight, k::Int64) = w.coordinates[k]
+
 """
     simple_root_squared_lengths(g::LieAlgebra)
 

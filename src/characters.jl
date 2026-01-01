@@ -22,94 +22,92 @@ function Base.show(io::IO, wm::WeightMultiplicity)
 end
 
 """
-    AbstractCharacter
+    Character
 
-Abstract base type for character representations.
-Subtypes must implement `Base.getindex(char, weight)` to return multiplicities.
-"""
-abstract type AbstractCharacter end
+Represents a character of an irreducible representation.
+Can be eagerly computed (all weights precomputed) or lazy (weights computed on demand).
 
+# Fields
+- `algebra::LieAlgebra`: The Lie algebra
+- `irrep::Union{Irrep, Nothing}`: The irrep (needed for lazy evaluation)
+- `weights::Dict{Weight, Int}`: Computed weight multiplicities
+- `lazy::Bool`: Whether to compute weights on demand
+- `ρ::Union{Weight, Nothing}`: Weyl vector (cached for lazy evaluation)
+- `positive_roots::Union{Vector{Weight}, Nothing}`: Positive roots (cached for lazy evaluation)
 """
-    Character <: AbstractCharacter
-
-Represents a fully computed character with all weights and multiplicities precomputed.
-"""
-struct Character <: AbstractCharacter
+mutable struct Character
     algebra::LieAlgebra
+    irrep::Union{Irrep, Nothing}
     weights::Dict{Weight, Int}
+    lazy::Bool
+    ρ::Union{Weight, Nothing}
+    positive_roots::Union{Vector{Weight}, Nothing}
     
+    # Constructor for eager evaluation (backward compatibility)
     function Character(g::LieAlgebra, weights::Dict{Weight, Int})
-        new(g, weights)
+        new(g, nothing, weights, false, nothing, nothing)
     end
-end
-
-"""
-    LazyCharacter <: AbstractCharacter
-
-Represents a lazily-evaluated character that computes weight multiplicities on demand.
-Only computes multiplicities for weights that are explicitly queried.
-"""
-mutable struct LazyCharacter <: AbstractCharacter
-    algebra::LieAlgebra
-    irrep::Irrep
-    computed::Dict{Weight, Int}
-    ρ::Weight
-    positive_roots::Vector{Weight}
     
-    function LazyCharacter(irrep::Irrep)
+    # Constructor for lazy or eager evaluation
+    function Character(irrep::Irrep; lazy::Bool=false)
         g = irrep.algebra
         λ = highest_weight(irrep)
-        computed = Dict{Weight, Int}(λ => 1)
-        ρ = weyl_vector(g)
-        positive_roots_list = positive_roots(g)
-        new(g, irrep, computed, ρ, positive_roots_list)
+        weights = Dict{Weight, Int}(λ => 1)
+        
+        if lazy
+            ρ = weyl_vector(g)
+            positive_roots_list = positive_roots(g)
+            new(g, irrep, weights, true, ρ, positive_roots_list)
+        else
+            new(g, irrep, weights, false, nothing, nothing)
+        end
     end
 end
 
-# Display for Character
+# Display
 function Base.show(io::IO, char::Character)
-    n_weights = length(char.weights)
-    dim = sum(values(char.weights))
-    println(io, "Character with ", n_weights, " distinct weights (dimension ", dim, ")")
-    
-    # Sort weights for consistent display
-    sorted_weights = sort(collect(char.weights), by = x -> x[1].coordinates, lt = lexicographic_compare)
-    
-    for (weight, mult) in sorted_weights
-        println(io, "  Weight(", weight.coordinates, ") → multiplicity ", mult)
+    if char.lazy
+        n_computed = length(char.weights)
+        print(io, "Character for ", char.irrep, " (", n_computed, " weights computed)")
+    else
+        n_weights = length(char.weights)
+        dim = sum(values(char.weights))
+        println(io, "Character with ", n_weights, " distinct weights (dimension ", dim, ")")
+        
+        # Sort weights for consistent display
+        sorted_weights = sort(collect(char.weights), by = x -> x[1].coordinates, lt = lexicographic_compare)
+        
+        for (weight, mult) in sorted_weights
+            println(io, "  Weight(", weight.coordinates, ") → multiplicity ", mult)
+        end
     end
-end
-
-# Display for LazyCharacter
-function Base.show(io::IO, char::LazyCharacter)
-    n_computed = length(char.computed)
-    print(io, "LazyCharacter for ", char.irrep, " (", n_computed, " weights computed)")
 end
 
 # Indexing: character[weight] returns multiplicity
 function Base.getindex(char::Character, w::Weight)
-    return get(char.weights, w, 0)
-end
-
-# Lazy indexing: compute weight on demand
-function Base.getindex(char::LazyCharacter, w::Weight)
     # Check if already computed
-    if haskey(char.computed, w)
-        return char.computed[w]
+    if haskey(char.weights, w)
+        return char.weights[w]
     end
-
+    
+    # If not lazy, weight doesn't exist
+    if !char.lazy
+        return 0
+    end
+    
+    # Lazy evaluation: compute on demand
     w_dom, _ = reflect_to_dominant(w)
     
     # Compute multiplicity using Freudenthal's formula
     λ = highest_weight(char.irrep)
-    mult = compute_multiplicity_freudenthal_lazy(w_dom, λ, char.ρ, char.positive_roots, char.computed)
+    mult = compute_multiplicity_freudenthal_lazy(w_dom, λ, char.ρ, char.positive_roots, char.weights)
     
     # Cache the result for entire Weyl orbit
     # All weights in an orbit have the same multiplicity
     orbit_dict = weyl_orbit(w_dom)
     orbit_weights = vcat(orbit_dict[1], orbit_dict[-1])
     for w_orbit in orbit_weights
-        char.computed[w_orbit] = mult
+        char.weights[w_orbit] = mult
     end
     
     return mult
@@ -129,13 +127,18 @@ end
 Base.length(char::Character) = length(char.weights)
 
 """
-    character(rep::Irrep)
+    character(rep::Irrep; lazy=false)
 
 Compute the complete character of an irreducible representation.
 Returns a Character object containing all weights with their multiplicities.
 
 Uses Freudenthal's multiplicity formula, which recursively computes the multiplicity
 of each weight μ from the multiplicities of weights μ + kα for positive roots α.
+
+# Arguments
+- `rep::Irrep`: The irreducible representation
+- `lazy::Bool=false`: If true, computes weights on demand.
+                      If false, all weights precomputed.
 
 # Algorithm
 Starting from the highest weight λ (with multiplicity 1), we work our way down
@@ -146,70 +149,83 @@ by subtracting positive roots. For each new weight μ, Freudenthal's formula giv
 where the sum is over all positive roots α and all k such that μ+kα is a weight.
 
 # Returns
-A `Character` object with a dictionary mapping weights to multiplicities.
+A `Character` object.
+
+# Examples
+```julia
+# Eager evaluation (default): precomputes all weights
+rep = Irrep(SU(3), [1, 0])
+char = character(rep)
+
+# Lazy evaluation: computes weights on demand
+char_lazy = character(rep; lazy=true)
+```
 
 # References
 - Humphreys, "Introduction to Lie Algebras and Representation Theory" (1972), §22.3
 - Fulton & Harris, "Representation Theory" (1991), §15.2
 """
-function character(rep::Irrep)
-    g = rep.algebra
-    λ = highest_weight(rep)
-    ρ = weyl_vector(g)
-    positive_roots_list = positive_roots(g)
-    simple_roots_list = simple_roots(g)
+function character(rep::Irrep; lazy::Bool=false)
+    # Create Character object (lazy or eager)
+    char = Character(rep; lazy=lazy)
     
-    # Dictionary to store computed multiplicities
-    multiplicities = Dict{Weight, Int}()
-    
-    # Highest weight has multiplicity 1
-    multiplicities[λ] = 1
-    
-    # Queue of weights to process, starting with highest weight
-    # We process weights in order from "highest" to "lowest"
-    to_process = [λ]
-    processed = Set{Weight}()
-    
-    while !isempty(to_process)
-        μ = popfirst!(to_process)
+    # If not lazy, compute all weights now
+    if !lazy
+        g = rep.algebra
+        λ = highest_weight(rep)
+        ρ = weyl_vector(g)
+        positive_roots_list = positive_roots(g)
+        simple_roots_list = simple_roots(g)
         
-        # Skip if already processed
-        if μ in processed
-            continue
-        end
-        push!(processed, μ)
+        # Use the weights dict from char
+        multiplicities = char.weights
         
-        # Generate new weights by subtracting simple roots only
-        for α in simple_roots_list
-            ν = μ - α
+        # Queue of weights to process, starting with highest weight
+        # We process weights in order from "highest" to "lowest"
+        to_process = [λ]
+        processed = Set{Weight}()
+        
+        while !isempty(to_process)
+            μ = popfirst!(to_process)
             
-            # Check if this weight should be included
-            if !(ν in processed) && !(ν in to_process)
-                # Check if we already know its multiplicity (possibly from a Weyl-related weight)
-                if haskey(multiplicities, ν)
-                    # We know the multiplicity, but still need to process it to explore further
-                    if multiplicities[ν] > 0
-                        push!(to_process, ν)
-                    end
-                else
-                    # Try to compute multiplicity using Freudenthal's formula
-                    mult = compute_multiplicity_freudenthal(ν, λ, ρ, positive_roots_list, multiplicities)
-                    
-                    if mult > 0
-                        # Cache for entire Weyl orbit to avoid redundant calculations
-                        orbit_dict = weyl_orbit(ν)
-                        for w_orbit in vcat(orbit_dict[1], orbit_dict[-1])
-                            multiplicities[w_orbit] = mult
+            # Skip if already processed
+            if μ in processed
+                continue
+            end
+            push!(processed, μ)
+            
+            # Generate new weights by subtracting simple roots only
+            for α in simple_roots_list
+                ν = μ - α
+                
+                # Check if this weight should be included
+                if !(ν in processed) && !(ν in to_process)
+                    # Check if we already know its multiplicity (possibly from a Weyl-related weight)
+                    if haskey(multiplicities, ν)
+                        # We know the multiplicity, but still need to process it to explore further
+                        if multiplicities[ν] > 0
+                            push!(to_process, ν)
                         end
+                    else
+                        # Try to compute multiplicity using Freudenthal's formula
+                        mult = compute_multiplicity_freudenthal(ν, λ, ρ, positive_roots_list, multiplicities)
                         
-                        push!(to_process, ν)
+                        if mult > 0
+                            # Cache for entire Weyl orbit to avoid redundant calculations
+                            orbit_dict = weyl_orbit(ν)
+                            for w_orbit in vcat(orbit_dict[1], orbit_dict[-1])
+                                multiplicities[w_orbit] = mult
+                            end
+                            
+                            push!(to_process, ν)
+                        end
                     end
                 end
             end
         end
     end
     
-    return Character(g, multiplicities)
+    return char
 end
 
 """
@@ -300,19 +316,16 @@ end
 """
     dimension(char::Character)
 
-Compute the dimension of a character (total number of weights counting multiplicities).
+Compute the dimension of a character.
+For eager characters, sums all weight multiplicities.
+For lazy characters, uses the irrep's dimension formula.
 """
 function dimension(char::Character)
-    return sum(values(char.weights))
-end
-
-"""
-    dimension(char::LazyCharacter)
-
-Compute the dimension of a lazy character using its irrep.
-"""
-function dimension(char::LazyCharacter)
-    return dimension(char.irrep)
+    if char.lazy && !isnothing(char.irrep)
+        return dimension(char.irrep)
+    else
+        return sum(values(char.weights))
+    end
 end
 
 """
@@ -395,5 +408,41 @@ function compute_multiplicity_freudenthal_lazy(
     
     result = Int(numerator(multiplicity))
     known_multiplicities[μ] = result
+    return result
+end
+
+"""
+    dominant_weights(rep::Irrep)
+
+Compute the dominant weights of an irreducible representation.
+
+Returns a dictionary mapping dominant weights (weights with all non-negative Dynkin labels)
+to their multiplicities in the character.
+
+# Arguments
+- `rep`: The irreducible representation
+
+# Returns
+A `Dict{Weight, Int}` containing only the dominant weights and their multiplicities.
+
+# Example
+```julia
+g = A_series(2)
+rep = Irrep(g, [2, 1])
+dom_weights = dominant_weights(rep)
+```
+"""
+function dominant_weights(rep::Irrep)
+    # Compute the full character
+    char = character(rep)
+    
+    # Filter to only dominant weights
+    result = Dict{Weight, Int}()
+    for (weight, mult) in char.weights
+        if is_dominant(weight)
+            result[weight] = mult
+        end
+    end
+    
     return result
 end
