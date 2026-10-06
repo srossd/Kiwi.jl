@@ -156,8 +156,8 @@ function local_minima(R::Rep; B0 = nothing, maxB = Inf)
     ad = md.ad
     cache = Dict{Vector{Int}, Tuple{Int, Vector{Vector{Int}}}}()
     m(λ) = get!(() -> minset(md, λ), cache, λ)
-    # initial cutoff: a few times the smallest Casimir of a component of R
-    B = B0 === nothing ? max(4 * minimum(c2(ad, ν) for ν in md.comps), 8ad.Gden) : B0
+    # initial cutoff (doubled until the stopping criterion holds)
+    B = B0 === nothing ? 8ad.Gden : B0
     S0 = Vector{Vector{Int}}()
     nscanned = 0
     while true
