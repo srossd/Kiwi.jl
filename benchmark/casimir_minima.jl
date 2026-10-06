@@ -156,8 +156,11 @@ function local_minima(R::Rep; B0 = nothing, maxB = Inf)
     ad = md.ad
     cache = Dict{Vector{Int}, Tuple{Int, Vector{Vector{Int}}}}()
     m(λ) = get!(() -> minset(md, λ), cache, λ)
-    # initial cutoff (doubled until the stopping criterion holds)
-    B = B0 === nothing ? 8ad.Gden : B0
+    # initial cutoff: at least the smallest Casimir of a component of R and twice
+    # the largest Casimir of a fundamental irrep (doubled until the stopping
+    # criterion holds; a smaller start can make the criterion vacuous)
+    fund = maximum(c2(ad, [Int(i == j) for i in 1:ad.n]) for j in 1:ad.n)
+    B = B0 === nothing ? max(minimum(c2(ad, ν) for ν in md.comps), 2fund, 8ad.Gden) : B0
     S0 = Vector{Vector{Int}}()
     nscanned = 0
     while true
