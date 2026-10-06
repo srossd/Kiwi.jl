@@ -8,4 +8,5 @@ using Kiwi
     include("test_weyl.jl")
     include("test_tensor_products.jl")
     include("test_symmetric.jl")
+    include("test_fast_algorithms.jl")
 end

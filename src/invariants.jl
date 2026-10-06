@@ -6,32 +6,7 @@ dim(λ) = ∏_{α > 0} (λ+ρ, α) / (ρ, α)
 where the product is over all positive roots α, and ρ is the Weyl vector.
 """
 function dimension(rep::Irrep)
-    g = rep.algebra
-    
-    # Get highest weight, Weyl vector, and positive roots
-    λ = highest_weight(rep)
-    ρ = weyl_vector(g)
-    roots = positive_roots(g)
-    
-    # Shifted weight λ + ρ
-    λ_shifted = λ + ρ
-    
-    # Compute product using Weyl's formula
-    numerator = big(1)
-    denominator = big(1)
-    
-    for α in roots
-        # Compute (λ+ρ, α) and (ρ, α)
-        num_val = inner_product(λ_shifted, α)
-        den_val = inner_product(ρ, α)
-        
-        # Multiply by rational numbers
-        numerator *= Base.numerator(num_val) * Base.denominator(den_val)
-        denominator *= Base.denominator(num_val) * Base.numerator(den_val)
-    end
-    
-    result = div(numerator, denominator)
-    return Int(result)
+    return Int(_dimension(algebra_data(rep.algebra), rep.dynkin_labels))
 end
 
 """

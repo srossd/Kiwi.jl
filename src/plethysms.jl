@@ -147,29 +147,18 @@ result = adams(2, rep)
 ```
 """
 function adams(n::Int, irrep::Irrep)
-    # Get dominant weights and their multiplicities
-    dom_weights = dominant_weights(irrep)
-    
     g = irrep.algebra
+    ad = algebra_data(g)
+    W, M = _full_character(g, irrep.dynkin_labels)
+    # ψⁿ(χ) = Σ_μ m_μ e^{nμ}; decompose with the Brauer/Racah–Speiser rule
+    out = Dict{Vector{Int}, Int}()
+    _klimyk!(out, ad, ones(Int, ad.n), 1, W, M; scale = n)
     result = Dict{Weight, Int}()
-    
-    # For each dominant weight, rescale by n and compute virtual decomposition
-    for (weight, mult) in dom_weights
-        # Rescale weight by n
-        rescaled_coords = n * weight.coordinates
-        rescaled_weight = Weight(g, rescaled_coords)
-        
-        # Compute virtual decomposition
-        virt = virtual_decomposition(rescaled_weight)
-        
-        # Add to result, multiplied by the original multiplicity
-        for (w, m) in virt
-            result[w] = get(result, w, 0) + mult * m
-        end
+    for (λ, c) in out
+        c == 0 && continue
+        result[Weight(g, λ)] = c
     end
-    
-    # Filter out zero multiplicities
-    return Dict(filter(t -> t[2] != 0, result))
+    return result
 end
 
 """
@@ -203,62 +192,74 @@ result = plethysm(lambda, rho)
 ```
 """
 function plethysm(lambda::Irrep, rho::SymmetricIrrep)
-    g = lambda.algebra
-    n = partition_size(rho)
-    
-    # Get character of rho
-    char_rho = SymmetricCharacter(rho)
-    
-    # Get all conjugacy classes (partitions of n)
-    partitions = all_partitions(n)
-    
-    # Accumulate result with rational coefficients
-    result_components = Dict{Irrep, Rational{Int}}()
-    
-    # Loop over conjugacy classes
-    for partition in partitions
-        cc = ConjugacyClass(partition)
-        parts = partition.parts
-        
-        # Compute adams(pᵢ, lambda) for each part and convert to Rep
-        adams_reps = Rep[]
-        for p in parts
-            adams_weights = adams(p, lambda)
-            push!(adams_reps, Rep(g, Dict([Irrep(w.algebra, [Int(n) for n in w.coordinates]) => mult for (w, mult) in adams_weights])))
-        end
-        
-        # Take tensor product of all adams representations
-        tensor_prod = adams_reps[1]
-        for i in 2:length(adams_reps)
-            tensor_prod = tensor_product(tensor_prod, adams_reps[i])
-        end
-        
-        # Weight by (class size) * char(rho, class) / n!
-        class_size = conjugacy_class_size(cc)
-        char_value = char_rho[cc]
-        weight = Rational(class_size * char_value, factorial(n))
-        
-        # Add to result with rational coefficients
-        for (irrep, mult) in tensor_prod.components
-            result_components[irrep] = get(result_components, irrep, 0//1) + weight * mult
-        end
-    end
-    
-    # Convert to integer multiplicities (they should all be integers)
-    final_components = Dict{Irrep, Int}()
-    for (irrep, mult) in result_components
-        if denominator(mult) != 1
-            error("Non-integer multiplicity $mult for irrep $irrep in plethysm result")
-        end
-        mult_int = Int(numerator(mult))
-        if mult_int != 0
-            final_components[irrep] = mult_int
-        end
-    end
-    
-    return Rep(g, final_components)
+    return plethysm(Rep(lambda), rho)
 end
 
+"""
+    plethysm(V::Rep, rho::SymmetricIrrep)
+
+Plethysm of a (possibly reducible) representation `V` with the Schur functor
+labelled by the partition of `rho`.
+"""
+function plethysm(V::Rep, rho::SymmetricIrrep)
+    g = V.algebra
+    ad = algebra_data(g)
+    parts = rho.partition.parts
+    n = isempty(parts) ? 0 : sum(parts)
+    if n == 0
+        return Rep(g, Dict(Irrep(g, zeros(Int, g.rank)) => 1))
+    end
+    W, M = _rep_full_character(V)
+    d = isempty(M) ? 0 : sum(big, M)
+    T = _int_type_for(big(d + 1)^n * factorial(big(n)) * 4)
+    memo = Dict{Vector{Int}, Dict{Vector{Int}, T}}()
+    memo[Int[]] = Dict{Vector{Int}, T}(zeros(Int, ad.n) => one(T))
+    MT = T.(M)
+    result = _schur_plethysm!(memo, ad, copy(parts), W, MT)
+    return _dict_to_rep(g, result)
+end
+
+"""
+    _schur_plethysm!(memo, ad, λ, W, M)
+
+Decomposition of the Schur functor s_λ applied to the representation with
+weights `W` and multiplicities `M`.  Uses the identity
+`Σ_k p_k p_k^⊥ = deg` together with the Murnaghan–Nakayama rule
+`p_k^⊥ s_λ = Σ_{λ/μ border strip of size k} (-1)^{ht} s_μ`, which gives
+
+    n · s_λ[V] = Σ_{k=1}^{n} ψᵏ(V) ⊗ Σ_{λ/μ = k-strip} (-1)^{ht} s_μ[V].
+
+Each step is a Klimyk product of a genuine representation with an Adams
+operation of `V`; the results for smaller partitions are memoised.
+"""
+function _schur_plethysm!(memo::Dict{Vector{Int}, Dict{Vector{Int}, T}}, ad::AlgebraData,
+                          λ::Vector{Int}, W::Vector{Vector{Int}}, M::Vector{T}) where {T}
+    r = get(memo, λ, nothing)
+    r === nothing || return r
+    n = sum(λ)
+    total = Dict{Vector{Int}, T}()
+    for k in 1:n
+        Y = Dict{Vector{Int}, T}()
+        for (μ, sgn) in _rim_hook_removals(λ, k)
+            for (ν, c) in _schur_plethysm!(memo, ad, μ, W, M)
+                Y[ν] = get(Y, ν, zero(T)) + sgn * c
+            end
+        end
+        for (ν, c) in Y
+            c == 0 && continue
+            _klimyk!(total, ad, ν .+ 1, c, W, M; scale = k)
+        end
+    end
+    result = Dict{Vector{Int}, T}()
+    for (ν, c) in total
+        c == 0 && continue
+        q, rem = divrem(c, n)
+        rem == 0 || error("Non-integer multiplicity in plethysm (internal error)")
+        result[ν] = q
+    end
+    memo[copy(λ)] = result
+    return result
+end
 """
     symmetric_power(n::Int, irrep::Irrep)
 

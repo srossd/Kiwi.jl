@@ -112,13 +112,14 @@ A new `Weight` object representing the reflected weight.
 """
 function simple_reflection(weight::Weight, i::Int)
     g = weight.algebra
-    roots = simple_roots(g)
-    
-    if i < 1 || i > length(roots)
-        error("Simple root index $i out of range (1 to $(length(roots)))")
+    n = lie_rank(g)
+    if i < 1 || i > n
+        error("Simple root index $i out of range (1 to $n)")
     end
-    
-    return weyl_reflection(weight, roots[i])
+    ad = algebra_data(g)
+    c = weight.coordinates[i]
+    # s_i(λ) = λ - λ_i α_i  (λ_i is the i-th Dynkin label)
+    return Weight(g, weight.coordinates .- c .* view(ad.α, :, i))
 end
 
 """
@@ -241,17 +242,8 @@ g = A_series(2)
 ```
 """
 function is_dominant(weight::Weight)
-    g = weight.algebra
-    simple = simple_roots(g)
-    
-    # Check if (λ, α_i) ≥ 0 for all simple roots α_i
-    for α in simple
-        if inner_product(weight, α) < 0
-            return false
-        end
-    end
-    
-    return true
+    # (λ, αᵢ) = λᵢ (αᵢ, αᵢ)/2, so dominance is non-negativity of the Dynkin labels
+    return all(c -> c >= 0, weight.coordinates)
 end
 
 """
@@ -285,36 +277,29 @@ g = A_series(2)
 """
 function reflect_to_dominant(weight::Weight; max_reflections::Int=1000)
     g = weight.algebra
-    simple = simple_roots(g)
-    
-    current_weight = weight
+    ad = algebra_data(g)
+    if all(isinteger, weight.coordinates)
+        x = Int.(weight.coordinates)
+        sign = _reflect_to_dominant!(x, ad)
+        return (Weight(g, x), sign)
+    end
+
+    # Generic (rational) path
+    current = copy(weight.coordinates)
     sign = 1
     reflections = 0
-    
-    while !is_dominant(current_weight)
+    while true
+        i = findfirst(c -> c < 0, current)
+        i === nothing && break
         if reflections >= max_reflections
             error("Could not make weight dominant within $max_reflections reflections")
         end
-        
-        # Find a simple root α_i such that (λ, α_i) < 0
-        reflected = false
-        for (i, α) in enumerate(simple)
-            if inner_product(current_weight, α) < 0
-                current_weight = weyl_reflection(current_weight, α)
-                sign *= -1
-                reflections += 1
-                reflected = true
-                break
-            end
-        end
-        
-        if !reflected
-            # This shouldn't happen if is_dominant is working correctly
-            error("Weight appears non-dominant but no reflection found")
-        end
+        c = current[i]
+        current .-= c .* view(ad.α, :, i)
+        sign = -sign
+        reflections += 1
     end
-    
-    return (current_weight, sign)
+    return (Weight(g, current), sign)
 end
 
 """
@@ -348,39 +333,43 @@ orbit = weyl_orbit(λ)
 """
 function weyl_orbit(weight::Weight; max_size::Int=10000)
     g = weight.algebra
-    simple = simple_roots(g)
-    
-    # Track weights with their signs
-    orbit_data = Dict{Vector{Rational{Int}}, Int}()
-    orbit_data[weight.coordinates] = 1  # Starting weight has sign +1
-    
-    to_process = [(weight, 1)]  # (weight, sign) pairs
-    
+    ad = algebra_data(g)
+    result = Dict{Int, Vector{Weight}}(1 => Weight[], -1 => Weight[])
+    if all(isinteger, weight.coordinates)
+        x = Int.(weight.coordinates)
+        s0 = _reflect_to_dominant!(x, ad)
+        orb, par = _orbit(ad, x)
+        if length(orb) > max_size
+            @warn "Weyl orbit computation stopped at max_size=$max_size"
+            orb = orb[1:max_size]; par = par[1:max_size]
+        end
+        for (w, p) in zip(orb, par)
+            sgn = iseven(p) ? s0 : -s0
+            push!(result[sgn], Weight(g, w))
+        end
+        return result
+    end
+
+    # Generic (rational) path: breadth-first search with simple reflections
+    orbit_data = Dict{Vector{Rational{Int}}, Int}(weight.coordinates => 1)
+    to_process = [(copy(weight.coordinates), 1)]
     while !isempty(to_process)
         if length(orbit_data) >= max_size
             @warn "Weyl orbit computation stopped at max_size=$max_size"
             break
         end
-        
         w, current_sign = popfirst!(to_process)
-        
-        # Apply all simple reflections
-        for α in simple
-            w_reflected = weyl_reflection(w, α)
-            new_sign = -current_sign  # Reflection flips the sign
-            
-            if !haskey(orbit_data, w_reflected.coordinates)
-                orbit_data[w_reflected.coordinates] = new_sign
-                push!(to_process, (w_reflected, new_sign))
+        for i in 1:ad.n
+            r = w .- w[i] .* view(ad.α, :, i)
+            if !haskey(orbit_data, r)
+                orbit_data[r] = -current_sign
+                push!(to_process, (r, -current_sign))
             end
         end
     end
-    
-    # Organize by sign
-    result = Dict{Int, Vector{Weight}}()
-    result[1] = [Weight(g, coords) for (coords, sign) in orbit_data if sign == 1]
-    result[-1] = [Weight(g, coords) for (coords, sign) in orbit_data if sign == -1]
-    
+    for (coords, sgn) in orbit_data
+        push!(result[sgn], Weight(g, coords))
+    end
     return result
 end
 
@@ -397,10 +386,15 @@ This function estimates it by computing the Weyl orbit size and using
 This requires computing the full Weyl orbit, which can be expensive.
 """
 function stabilizer_size(weight::Weight)
+    if all(isinteger, weight.coordinates)
+        ad = algebra_data(weight.algebra)
+        x = Int.(weight.coordinates)
+        _reflect_to_dominant!(x, ad)
+        return Int(_stabilizer_order(ad, x))
+    end
     orbit = weyl_orbit(weight)
     orbit_size = length(orbit[1]) + length(orbit[-1])
     weyl_order = weyl_group_order(weight.algebra)
-    
     return div(weyl_order, orbit_size)
 end
 

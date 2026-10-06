@@ -313,37 +313,60 @@ from the Young diagram λ, where sign(T) is the product of signs from each remov
 Returns 0 if the irrep and conjugacy class correspond to different values of n.
 """
 function murnaghan_nakayama(irrep::SymmetricIrrep, cc::ConjugacyClass)
-    λ = irrep.partition
+    λ = irrep.partition.parts
     μ = cc.partition.parts
-    
-    # Check that both are for the same Sₙ
-    if partition_size(λ) != partition_size(cc.partition)
-        return 0
-    end
-    
-    # Base case: empty partition
-    if isempty(μ) || all(x -> x == 0, μ)
-        return isempty(λ.parts) || all(x -> x == 0, λ.parts) ? 1 : 0
-    end
-    
-    # Recursive case: remove rim hooks of length μ[1]
-    # then compute character for remaining parts
+    partition_size(irrep.partition) == partition_size(cc.partition) || return 0
+    return _mn(λ, μ, 1)
+end
+
+const _MN_CACHE = Dict{Tuple{Vector{Int}, Vector{Int}}, Int}()
+const _MN_LOCK = ReentrantLock()
+
+# χ^λ evaluated on the cycle type μ[i:end] (memoised)
+function _mn(λ::Vector{Int}, μ::Vector{Int}, i::Int)
+    i > length(μ) && return isempty(λ) ? 1 : 0
+    key = (λ, μ[i:end])
+    v = lock(() -> get(_MN_CACHE, key, nothing), _MN_LOCK)
+    v === nothing || return v
     total = 0
-    hook_length = μ[1]
-    remaining_cycle_type = length(μ) > 1 ? μ[2:end] : Int[]
-    
-    removals = remove_rim_hook(λ, hook_length)
-    
-    for (new_partition, sign) in removals
-        # Recursively compute character for the remaining diagram and cycle type
-        remaining_cc = ConjugacyClass(Partition(remaining_cycle_type))
-        remaining_irrep = SymmetricIrrep(new_partition)
-        
-        sub_char = murnaghan_nakayama(remaining_irrep, remaining_cc)
-        total += sign * sub_char
+    for (ν, sgn) in _rim_hook_removals(λ, μ[i])
+        total += sgn * _mn(ν, μ, i + 1)
     end
-    
+    lock(() -> (_MN_CACHE[key] = total), _MN_LOCK)
     return total
+end
+
+"""
+    _rim_hook_removals(parts, k) -> Vector{Tuple{Vector{Int}, Int}}
+
+All partitions obtained from `parts` by removing a border strip (rim hook) of
+size `k`, with the sign `(-1)^(height - 1)`.  Uses β-numbers: removing a k-strip
+moves one bead from position b to an empty position b - k, and the height minus
+one is the number of beads strictly in between.
+"""
+function _rim_hook_removals(parts::Vector{Int}, k::Int)
+    L = length(parts)
+    β = [parts[i] + (L - i) for i in 1:L]
+    res = Tuple{Vector{Int}, Int}[]
+    for i in 1:L
+        b2 = β[i] - k
+        b2 < 0 && continue
+        b2 in β && continue
+        cnt = 0
+        for x in β
+            (b2 < x < β[i]) && (cnt += 1)
+        end
+        nb = copy(β)
+        nb[i] = b2
+        sort!(nb, rev = true)
+        np = Int[]
+        for j in 1:L
+            v = nb[j] - (L - j)
+            v > 0 && push!(np, v)
+        end
+        push!(res, (np, iseven(cnt) ? 1 : -1))
+    end
+    return res
 end
 
 """

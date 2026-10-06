@@ -91,3 +91,35 @@ println("[2,1]([1,0]) = ", result)
 ## See Also
 
 - [API Reference: Tensor Products](../api/tensor_products.md)
+
+## Plethysms of reducible representations
+
+`plethysm` also accepts a reducible `Rep`:
+
+```@example su3
+V = Rep(fund) + Rep(adj)
+plethysm(V, SymmetricIrrep([2]))   # S²(3 ⊕ 8)
+```
+
+## Spinor-type products over weights
+
+For a self-conjugate representation `r`, [`cosh_product`](@ref) decomposes
+
+```math
+\chi = 2^{m_0} \prod_{w \in \Phi^+(r)} \left(e^{w/2} + e^{-w/2}\right),
+```
+
+where ``\Phi^+(r)`` contains one weight from each pair ``\pm w`` of non-zero weights
+and ``m_0`` is the multiplicity of the zero weight.  For a real `r` this is (up to a
+power of 2) the spinor representation of ``\mathfrak{so}(\dim r)`` restricted to the
+algebra; for the adjoint representation it is ``2^{\mathrm{rk}}`` copies of the irrep
+with highest weight ``\rho`` (Kostant).
+
+```@example su3
+cosh_product(adj)               # 4 × [1,1]
+cosh_product(Irrep(su3, [2, 2]))
+```
+
+With `half = false` the product runs over all weights and gives the character of the
+exterior algebra ``\Lambda^\bullet r``.  Use [`frobenius_schur_indicator`](@ref) /
+[`is_real`](@ref) to check whether an irrep is real.

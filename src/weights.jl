@@ -79,35 +79,22 @@ the metric is determined by the condition that (α_i, α_j) follows from the Car
 """
 function inner_product(w1::Weight, w2::Weight)
     @assert w1.algebra == w2.algebra "Weights must be from the same algebra"
-    
-    g = w1.algebra
-    C = cartan_matrix(g)
-    n = length(w1.coordinates)
-    
-    # Get squared lengths of simple roots
-    lengths_sq = simple_root_squared_lengths(g)
-    
-    # Build the metric tensor
-    # We know: C_ij = 2(α_i, α_j)/(α_j, α_j)
-    # So: (α_i, α_j) = C_ij * (α_j, α_j) / 2
-    # And: α_i = Σ_k C_ik ω_k (rows of C)
-    # So: (α_i, α_j) = Σ_{k,l} C_ik C_jl G_kl
-    # This gives: C G C^T = target where target_ij = C_ij * (α_j, α_j) / 2
-    
-    # Build target matrix: T_ij = C_ij * (α_j, α_j) / 2
-    D = diagm(lengths_sq)
-    target = Rational{Int}.(C) * D / 2
-    
-    # Solve: C G C^T = target => G = C^{-1} target (C^T)^{-1}
-    G = inv(Rational{Int}.(C)) * target * inv(Rational{Int}.(transpose(C)))
-    
-    result = Rational{Int}(0)
-    for i in 1:n
-        for j in 1:n
-            result += w1.coordinates[i] * w2.coordinates[j] * G[i, j]
+    ad = algebra_data(w1.algebra)
+    x = w1.coordinates
+    y = w2.coordinates
+    n = length(x)
+    if all(isinteger, x) && all(isinteger, y)
+        acc = 0
+        @inbounds for i in 1:n, j in 1:n
+            acc += Int(x[i]) * ad.G[i, j] * Int(y[j])
         end
+        return acc // ad.Gden
     end
-    return result
+    result = Rational{Int}(0)
+    @inbounds for i in 1:n, j in 1:n
+        result += x[i] * ad.G[i, j] * y[j]
+    end
+    return result / ad.Gden
 end
 
 """
@@ -153,49 +140,7 @@ Follows the procedure in Georgi section 8.8: positive roots are built by
 systematically adding simple roots and checking the root string condition.
 """
 function positive_roots(g::LieAlgebra)
-    simple = simple_roots(g)
-    n = length(simple)
-    C = cartan_matrix(g)
-    
-    roots = copy(simple)
-    seen = Set([r.coordinates for r in roots])
-    processed = Set{Vector{Rational{Int}}}()
-    
-    # Build roots by adding simple roots
-    # For each root α, check each component (α)_i = C[i,:]·α in the fundamental weight basis
-    # If (α)_i < 0, then α is at the bottom of an α_i-string
-    # and we can add α_i up to |(α)_i| times to get new roots
-    queue = copy(roots)
-    
-    while !isempty(queue)
-        α = popfirst!(queue)
-        
-        # Skip if already processed
-        α.coordinates in processed && continue
-        push!(processed, α.coordinates)
-        
-        for i in 1:n
-            # Compute (α)_i = α_i · α where both are in fundamental weight basis
-            # Since α_i = C[i,:] (i-th row of Cartan matrix), we have (α)_i = dot(C[i,:], α.coordinates)
-            coeff_i = α.coordinates[i]
-            
-            # If coeff_i < 0, then α is at the bottom of an α_i-string
-            # and we can add α_i up to |coeff_i| times
-            if coeff_i < 0
-                k_max = Int(-coeff_i)
-                for k in 1:k_max
-                    candidate = α + k * simple[i]
-                    if !(candidate.coordinates in seen)
-                        push!(roots, candidate)
-                        push!(queue, candidate)
-                        push!(seen, candidate.coordinates)
-                    end
-                end
-            end
-        end
-    end
-    
-    return roots
+    return [Weight(g, r) for r in algebra_data(g).pos_roots]
 end
 
 """
@@ -227,17 +172,6 @@ end
 Compute the Weyl vector ρ as half the sum of positive roots.
 """
 function weyl_vector(g::LieAlgebra)
-    roots = positive_roots(g)
-    if isempty(roots)
-        return Weight(g, zeros(Rational{Int}, g.rank))
-    end
-    
-    # Sum all positive roots
-    sum_roots = roots[1]
-    for i in 2:length(roots)
-        sum_roots = sum_roots + roots[i]
-    end
-    
-    # Return half the sum
-    return (1//2) * sum_roots
+    # ρ = half the sum of positive roots = sum of fundamental weights
+    return Weight(g, ones(Int, g.rank))
 end

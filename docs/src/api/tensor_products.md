@@ -18,6 +18,15 @@ Order = [:function]
 Filter = t -> t in [Kiwi.plethysm, Kiwi.symmetric_power, Kiwi.antisymmetric_power]
 ```
 
+## Products of `cosh` factors over weights
+
+```@autodocs
+Modules = [Kiwi]
+Pages = ["cosh_product.jl"]
+Order = [:function]
+Filter = t -> t == Kiwi.cosh_product
+```
+
 ## Unicode Operator
 
 ```julia

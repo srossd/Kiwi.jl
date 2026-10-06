@@ -20,7 +20,8 @@ export conjugate, is_trivial, is_self_conjugate
 export congruency_class
 export highest_weight
 export tensor_product, plethysm, symmetric_power, antisymmetric_power
-export character, dominant_weights
+export character, dominant_weights, dominant_character
+export cosh_product, frobenius_schur_indicator, is_real
 export weyl_reflection, simple_reflection, is_dominant, dynkin_labels, inner_product
 export reflect_to_dominant, weyl_orbit, weyl_group_order, simple_roots
 export longest_weyl_word
@@ -31,11 +32,14 @@ export ⊕, ⊗
 include("lie_algebras.jl")
 include("weights.jl")
 include("irreps.jl")
+include("core.jl")
+include("modular.jl")
 include("invariants.jl")
 include("characters.jl")
 include("weyl.jl")
 include("reducible.jl")
 include("symmetric.jl")
 include("plethysms.jl")
+include("cosh_product.jl")
 
 end # module
