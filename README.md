@@ -73,7 +73,10 @@ matrix, scaled metric, positive roots, coroots) computed once and cached:
   multiplies genuine representations by Adams operations (no sums over conjugacy
   classes); any (reducible) `Rep` can be plethysm'd.
 
-See [`benchmark/`](benchmark/) for timings.
+See [`benchmark/`](benchmark/README.md) for timings: compared with the previous
+rational-arithmetic implementation, characters are 10²–10³× faster, tensor
+products 10²–10⁵× and plethysms 10³–10⁶× (e.g. the E₇ character of dimension 10⁸
+in 0.5 s, `56 ⊗ 56`-type E₇ products in milliseconds).
 
 ```julia
 # 56 ⊗ 56 of E7, characters of large E8 irreps, plethysms of E-type reps: all fast

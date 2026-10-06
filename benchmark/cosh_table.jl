@@ -66,7 +66,11 @@ function run_case(g, l)
     doms, mults = dominant_character(g, l)
     m0 = sum((m for (μ, m) in zip(doms, mults) if all(iszero, μ)); init = 0)
     npos = (dimension(r) - m0) ÷ 2
-    t = @elapsed R = cosh_product(r; levi = get(LEVI, (g, l), :auto))
+    levi = get(LEVI, (g, l), :auto)
+    t = @elapsed R = cosh_product(r; levi = levi)
+    if t < 30   # report the time of a second (compiled) call
+        t = @elapsed R = cosh_product(r; levi = levi)
+    end
     E = npos + m0
     total = sum(dimension_big(ir) * big(m) for (ir, m) in R.components)
     @assert total == big(2)^E "dimension check failed for $g $l"
@@ -94,8 +98,8 @@ function main(outdir, cachefile = nothing)
                     "(so #Φ⁺(r) = (dim r − m₀)/2) and m₀ is the multiplicity of the zero weight. ",
                     "Components are written `multiplicity·[Dynkin labels]` with the dimension as a subscript; ",
                     "for long decompositions the two largest components are shown and the complete list (up to ",
-                    "$MAX_FULL components) is in `cosh_product_full.md`. Times are wall-clock seconds with 4 threads ",
-                    "(first call, i.e. including compilation for the first row).\n")
+                    "$MAX_FULL components) is in `cosh_product_full.md`. Times are wall-clock seconds with 4 threads, ",
+                    "excluding compilation. Every row satisfies dim R = 2^{#Φ⁺(r) + m₀}.\n")
         println(io, "| G | r | dim r | #Φ⁺(r) | m₀ | dim R | # irreps in R | R (or its largest components) | time (s) |")
         println(io, "|---|---|---:|---:|---:|---:|---:|---|---:|")
         for res in results
