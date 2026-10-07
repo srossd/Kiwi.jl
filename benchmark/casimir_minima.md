@@ -1,6 +1,6 @@
 # Local minima of C₂(r₁) + C₂(r₂) with r₂ ⊂ r₁ ⊗ R
 
-R is the representation of `cosh_product_table.md`. A pair is a local minimum if neither C₂(r₁) nor C₂(r₂) can be lowered by changing that entry alone while keeping r₂ ⊂ r₁ ⊗ R. C₂ is normalised as (λ, λ+2ρ)/2 with long roots of length² 2 (C₂ of the SU(2) spin-j irrep is j(j+1)/2). Pairs are listed with C₂(r₁) + C₂(r₂); each unordered pair {r₁, r₂} is shown once (both orders are minima). Search cutoff: every r₁ with C₂(r₁) ≤ B was examined; all candidates found have C₂ ≤ B/2.
+R is the representation of `cosh_product_table.md`. A pair is a local minimum if neither C₂(r₁) nor C₂(r₂) can be lowered by changing that entry alone while keeping r₂ ⊂ r₁ ⊗ R. C₂ is normalised as (λ, λ+2ρ)/2 with long roots of length² 2 (C₂ of the SU(2) spin-j irrep is j(j+1)). Pairs are listed with C₂(r₁) + C₂(r₂); each unordered pair {r₁, r₂} is shown once (both orders are minima). Search cutoff: every r₁ with C₂(r₁) ≤ B was examined; all candidates found have C₂ ≤ B/2.
 
 ## A_1 r = [4] (dim 5)
 
