@@ -197,7 +197,7 @@ function main(outdir, cachefile)
                 "neither C₂(r₁) nor C₂(r₂) can be lowered by changing that entry alone while keeping ",
                 "r₂ ⊂ r₁ ⊗ R. C₂ is normalised as (λ, λ+2ρ)/2 with long roots of length² 2 ",
                 "(C₂ of the SU(2) spin-j irrep is j(j+1)). Pairs are listed with C₂(r₁) + C₂(r₂); ",
-                "each unordered pair {r₁, r₂} is shown once (both orders are minima). ",
+                "both orderings (r₁, r₂) and (r₂, r₁) are listed and counted. ",
                 "Search cutoff: every r₁ with C₂(r₁) ≤ B was examined; all candidates found have ",
                 "C₂ ≤ B/2.\n")
     summary = []
@@ -212,18 +212,18 @@ function main(outdir, cachefile)
         res = haskey(cache, key) ? cache[key] : run_case(g, l)
         t = @elapsed lm = local_minima(res.R)
         ad = K.algebra_data(g)
-        unordered = [(a, b) for (a, b) in lm.pairs if a <= b]
+        pairs = lm.pairs   # ordered pairs: (a, b) and (b, a) both appear
         @printf("%-5s %-22s comps=%-6d B=%-8.2f scanned=%-6d minima=%-4d %.2fs\n", string(g), fmt(l),
-                lm.ncomps, lm.B, lm.nscanned, length(unordered), t)
+                lm.ncomps, lm.B, lm.nscanned, length(pairs), t)
         flush(stdout)
         push!(summary, (g, l, lm, t))
         println(io, "## ", g, " r = ", fmt(l), " (dim ", dimension(Irrep(g, l)), ")\n")
         println(io, "R has $(lm.ncomps) distinct components; cutoff B = $(round(lm.B, digits = 2)) ",
-                    "($(lm.nscanned) irreps r₁ scanned); $(length(unordered)) local minima; ",
+                    "($(lm.nscanned) irreps r₁ scanned); $(length(pairs)) local minima; ",
                     "$(round(t, digits = 2)) s.\n")
-        vals = sort(unique(c2(ad, a) + c2(ad, b) for (a, b) in unordered))
+        vals = sort(unique(c2(ad, a) + c2(ad, b) for (a, b) in pairs))
         for v in vals
-            ps = [(a, b) for (a, b) in unordered if c2(ad, a) + c2(ad, b) == v]
+            ps = [(a, b) for (a, b) in pairs if c2(ad, a) + c2(ad, b) == v]
             str = join(["(" * fmt(a) * ", " * fmt(b) * ")" for (a, b) in ps], ", ")
             println(io, "* C₂ sum = ", v // (2ad.Gden), ": ", str)
         end
