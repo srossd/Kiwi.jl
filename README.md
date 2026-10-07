@@ -73,8 +73,7 @@ matrix, scaled metric, positive roots, coroots) computed once and cached:
   multiplies genuine representations by Adams operations (no sums over conjugacy
   classes); any (reducible) `Rep` can be plethysm'd.
 
-See [`benchmark/`](benchmark/README.md) for timings: compared with the previous
-rational-arithmetic implementation, characters are 10²–10³× faster, tensor
+Compared with the previous rational-arithmetic implementation, characters are 10²–10³× faster, tensor
 products 10²–10⁵× and plethysms 10³–10⁶× (e.g. the E₇ character of dimension 10⁸
 in 0.5 s, `56 ⊗ 56`-type E₇ products in milliseconds).
 
@@ -97,7 +96,6 @@ components of every tensor product below. For characters, LieART returns the ful
 list of weights (one entry per dimension) while Kiwi returns the distinct weights
 with multiplicities. LieART has no plethysm function, and the E₇ [0,0,1,0,0,0,1]
 character (dim 10⁸), which exceeded LieART's 300 s cut-off, is omitted.
-Scripts: `benchmark/benchmarks.jl` and `benchmark/lieart_benchmark.wl`.
 
 | task | case | LieART (s) | Kiwi (s) | ratio |
 |---|---|---:|---:|---:|
@@ -130,7 +128,4 @@ cosh_product(adjoint_irrep(F_series(4)))      # 16 × [1,1,1,1]
 cosh_product(Irrep(SO(16), [0,0,0,0,0,0,0,1]))  # 135 irreps (E8/Spin(16))
 frobenius_schur_indicator(Irrep(SO(7), [0,0,1]))  # 1 (real)
 ```
-
-A table of results for real irreps is in
-[`benchmark/cosh_product_table.md`](benchmark/cosh_product_table.md).
 
