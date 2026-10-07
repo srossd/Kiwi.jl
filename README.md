@@ -85,6 +85,39 @@ character(Irrep(E_series(8), [1,0,0,0,0,0,1,0]))
 plethysm(Irrep(E_series(6), [1,0,0,0,0,0]), SymmetricIrrep([3, 2]))
 ```
 
+### Comparison with LieART
+
+Wall-clock seconds for the same computations in Kiwi and in
+[LieART](https://lieart.hepforge.org/) 2.1.0 (Mathematica). Kiwi times are the
+best of 5 calls on one thread, compilation excluded; LieART times are one call
+after a warm-up. **The two columns come from different machines**: Kiwi ran on a
+4-core cloud VM and LieART on a different computer, so the ratios are indicative only.
+The two programs agree on every irrep dimension and on the number of irreducible
+components of every tensor product below. For characters, LieART returns the full
+list of weights (one entry per dimension) while Kiwi returns the distinct weights
+with multiplicities. LieART has no plethysm function, and the E₇ [0,0,1,0,0,0,1]
+character (dim 10⁸), which exceeded LieART's 300 s cut-off, is omitted.
+Scripts: `benchmark/benchmarks.jl` and `benchmark/lieart_benchmark.wl`.
+
+| task | case | LieART (s) | Kiwi (s) | ratio |
+|---|---|---:|---:|---:|
+| character | A₂ [10,10] (dim 1331) | 0.12 | 0.00025 | 480× |
+| character | A₄ [2,1,1,2] (dim 6125) | 0.26 | 0.0025 | 100× |
+| character | D₅ [1,1,0,1,1] (dim 36750) | 1.49 | 0.0010 | 1500× |
+| character | C₄ [1,1,1,1] (dim 65536) | 2.08 | 0.00067 | 3100× |
+| character | G₂ [6,6] (dim 117649) | 3.50 | 0.00037 | 9400× |
+| character | F₄ [1,1,0,1] (dim 379848) | 19.4 | 0.0015 | 13000× |
+| character | E₆ [1,1,0,0,1,1] (dim 4.2·10⁶) | 284 | 0.018 | 16000× |
+| character | E₈ [1,0,0,0,0,0,1,0] (dim 779247) | 198 | 0.031 | 6400× |
+| tensor product | A₂ [8,5] ⊗ [6,7] | 10.1 | 0.000070 | 1.4·10⁵× |
+| tensor product | A₄ [1,1,1,1] ⊗ [2,1,0,1] | 0.028 | 0.000056 | 500× |
+| tensor product | D₅ [0,1,0,1,1] ⊗ [1,0,1,0,0] | 0.095 | 0.000097 | 980× |
+| tensor product | G₂ [3,3] ⊗ [4,2] | 0.45 | 0.000087 | 5100× |
+| tensor product | F₄ [0,0,1,1] ⊗ [1,0,0,1] | 0.18 | 0.000081 | 2200× |
+| tensor product | E₆ [1,1,0,0,0,1] ⊗ [0,1,0,0,1,1] | 46.6 | 0.0039 | 12000× |
+| tensor product | E₇ [0,0,0,1,0,0,0] ⊗ [0,0,1,0,0,0,0] | 16.6 | 0.0022 | 7500× |
+| tensor product | E₈ [0,…,0,1,1] ⊗ [1,0,…,0,1,0] | 107 | 0.022 | 4800× |
+
 ## Spinor-type products over weights
 
 `cosh_product(r)` decomposes `χ = 2^{m₀} ∏_{w ∈ Φ⁺(r)} (e^{w/2} + e^{-w/2})` for a
