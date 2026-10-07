@@ -184,6 +184,11 @@ end
 
 fmt(λ) = "[" * join(λ, ",") * "]"
 
+# Cases not attempted: for the SO(16) spinor every r₁ with C₂ ≲ 120 is a
+# candidate (the smallest component of R has C₂ = 240), and the scan did not
+# finish within two hours in rank 8.
+const SKIP = Set([(SO(16), [0, 0, 0, 0, 0, 0, 0, 1])])
+
 function main(outdir, cachefile)
     cache = isfile(cachefile) ? deserialize(cachefile) : Dict()
     io = open(joinpath(outdir, "casimir_minima.md"), "w")
@@ -197,6 +202,12 @@ function main(outdir, cachefile)
                 "C₂ ≤ B/2.\n")
     summary = []
     for (g, l) in CASES
+        if (g, l) in SKIP
+            println(io, "## ", g, " r = ", fmt(l), " (dim ", dimension(Irrep(g, l)), ")\n")
+            println(io, "Not computed: every r₁ with C₂ up to ≈ 120 is a candidate here (the smallest ",
+                        "component of R has C₂ = 240), and the rank-8 scan did not finish in two hours.\n")
+            continue
+        end
         key = (string(g), l)
         res = haskey(cache, key) ? cache[key] : run_case(g, l)
         t = @elapsed lm = local_minima(res.R)
