@@ -16,22 +16,26 @@ Needs["LieART`"];
 
 $timeLimit = 300;
 
-(* Kiwi (algebra, rank) -> LieART series symbol *)
-series = <|"A" -> A, "B" -> B, "C" -> C, "D" -> D, "E" -> E, "F" -> F, "G" -> G|>;
-irrep[s_String, labels_List] := Irrep[series[s]] @@ labels;
+(* Kiwi series letter -> LieART algebra.  Classical series are given by letter
+   (rank = number of labels); exceptional algebras have their own symbols. *)
+algebra["A", _] = A; algebra["B", _] = B; algebra["C", _] = C; algebra["D", _] = D;
+algebra["E", 6] = E6; algebra["E", 7] = E7; algebra["E", 8] = E8;
+algebra["F", 4] = F4; algebra["G", 2] = G2;
+irrep[s_String, labels_List] := Irrep[algebra[s, Length[labels]]] @@ labels;
 
 time[expr_] := Module[{r},
   r = TimeConstrained[AbsoluteTiming[expr], $timeLimit, $Failed];
-  If[r === $Failed, {"> " <> ToString[$timeLimit], $Failed}, {NumberForm[First[r], {8, 4}], Last[r]}]
+  If[r === $Failed, {"> " <> ToString[$timeLimit], $Failed},
+    {ToString[CForm[First[r]]], Last[r]}]
 ];
 SetAttributes[time, HoldAll];
 
 (* Number of distinct irreps in a LieART decomposition (IrrepPlus / IrrepTimes) *)
 ncomp[$Failed] := "-";
-ncomp[x_] := Length[DeleteDuplicates[Cases[{x}, _Irrep, Infinity]]];
+ncomp[x_] := Length[DeleteDuplicates[Cases[{x}, Irrep[_][___], Infinity]]];
 
 show[s_, l_] := s <> ToString[Length[l]] <> " " <> StringJoin[Riffle[ToString /@ l, ","]];
-emit[fields__] := Print[StringRiffle[ToString /@ {fields}, ","]];
+emit[fields__] := Print[StringRiffle[ToString[#, OutputForm] & /@ {fields}, ","]];
 
 characterCases = {
   {"A", {10, 10}}, {"A", {2, 1, 1, 2}}, {"D", {1, 1, 0, 1, 1}}, {"C", {1, 1, 1, 1}},
@@ -53,6 +57,13 @@ WeightSystem[Irrep[A][1, 1]];
 
 emit["task", "case", "dim", "n_results", "seconds"];
 
+(* Diagnostics: check that irreps evaluate and what a decomposition looks like *)
+Print["# LieART paclet: ", Quiet[First[PacletFind["LieART"], None]]];
+Print["# Dim checks (expect 117649, 379848, 4200768): ",
+  {Dim[irrep["G", {6, 6}]], Dim[irrep["F", {1, 1, 0, 1}]], Dim[irrep["E", {1, 1, 0, 0, 1, 1}]]}];
+Print["# A4 product sample: ",
+  ToString[Short[InputForm[DecomposeProduct[irrep["A", {1, 1, 1, 1}], irrep["A", {2, 1, 0, 1}]]], 3]]];
+
 (* Characters: full weight system (Kiwi's `character`).  n_results = number of
    weights returned by WeightSystem. *)
 Do[
@@ -71,6 +82,5 @@ Do[
   {c, tensorCases}];
 
 (* Plethysms: LieART's API for these is version dependent, so report what exists. *)
-Print["# LieART version: ", ToString[Quiet[LieART`$Version]]];
 Print["# candidate plethysm functions: ",
   Select[Names["LieART`*"], StringContainsQ[#, "Sym" | "Alt" | "Pleth" | "Tensor", IgnoreCase -> True] &]];
