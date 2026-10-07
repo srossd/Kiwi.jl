@@ -61,8 +61,8 @@ emit["task", "case", "dim", "n_results", "seconds"];
 Print["# LieART paclet: ", Quiet[First[PacletFind["LieART"], None]]];
 Print["# Dim checks (expect 117649, 379848, 4200768): ",
   {Dim[irrep["G", {6, 6}]], Dim[irrep["F", {1, 1, 0, 1}]], Dim[irrep["E", {1, 1, 0, 0, 1, 1}]]}];
-Print["# A4 product sample: ",
-  ToString[Short[InputForm[DecomposeProduct[irrep["A", {1, 1, 1, 1}], irrep["A", {2, 1, 0, 1}]]], 3]]];
+Print["# A4 product sample ([1,0,0,1] x [0,1,0,0]): ",
+  ToString[Short[InputForm[DecomposeProduct[irrep["A", {1, 0, 0, 1}], irrep["A", {0, 1, 0, 0}]]], 3]]];
 
 (* Characters: full weight system (Kiwi's `character`).  n_results = number of
    weights returned by WeightSystem. *)
