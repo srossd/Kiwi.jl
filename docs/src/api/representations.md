@@ -26,3 +26,11 @@ Pages = ["irreps.jl", "invariants.jl"]
 Order = [:function]
 Filter = t -> t in [Kiwi.dimension, Kiwi.quadratic_casimir, Kiwi.dynkin_index, Kiwi.conjugate, Kiwi.is_self_conjugate, Kiwi.is_trivial, Kiwi.dynkin_labels, Kiwi.congruency_class, Kiwi.dimension_label]
 ```
+## Reality
+
+```@autodocs
+Modules = [Kiwi]
+Pages = ["cosh_product.jl"]
+Order = [:function]
+Filter = t -> t in [Kiwi.frobenius_schur_indicator, Kiwi.is_real]
+```

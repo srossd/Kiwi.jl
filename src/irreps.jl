@@ -59,34 +59,13 @@ is_trivial(rep::Irrep) = all(rep.dynkin_labels .== 0)
 Return the conjugate (dual) representation.
 """
 function conjugate(rep::Irrep)
+    # The conjugate irrep has highest weight -w₀λ, the dominant weight in the Weyl
+    # orbit of -λ.  (For A_n this reverses the labels, for D_n with n odd it swaps
+    # the last two, for E_6 it applies the diagram automorphism; otherwise -w₀ = 1.)
     g = rep.algebra
-    
-    if g.series == :A
-        # For A_n, conjugate reverses Dynkin labels
-        return Irrep(g, reverse(rep.dynkin_labels))
-    elseif g.series == :B || g.series == :C || g.series == :F || g.series == :G
-        # For B_n, C_n, F_4, and G_2, representations are self-conjugate
-        return rep
-    elseif g.series == :D
-        # For D_n, swap last two Dynkin labels
-        labels = copy(rep.dynkin_labels)
-        n = length(labels)
-        labels[n-1], labels[n] = labels[n], labels[n-1]
-        return Irrep(g, labels)
-    elseif g.series == :E
-        # For E_6, conjugate swaps nodes 1↔6, 3↔5
-        # For E_7 and E_8, representations are self-conjugate
-        if g.rank == 6
-            labels = copy(rep.dynkin_labels)
-            labels[1], labels[6] = labels[6], labels[1]
-            labels[3], labels[5] = labels[5], labels[3]
-            return Irrep(g, labels)
-        else
-            return rep
-        end
-    end
-    
-    error("Conjugate not implemented for this algebra type")
+    x = -rep.dynkin_labels
+    _reflect_to_dominant!(x, algebra_data(g))
+    return Irrep(g, x)
 end
 
 """

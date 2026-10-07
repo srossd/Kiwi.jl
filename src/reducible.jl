@@ -7,24 +7,27 @@ Reducible representation type and tensor product decomposition using Klimyk's fo
 
 Represents a (possibly reducible) representation as a linear combination of irreps.
 Stored as a dictionary mapping irreps to their multiplicities.
+
+The multiplicity type `T` is `Int` unless a computation produces multiplicities
+that do not fit in 64 bits, in which case it is `BigInt`.
 """
-struct Rep
+struct Rep{T<:Integer}
     algebra::LieAlgebra
-    components::Dict{Irrep, Int}  # Irrep -> multiplicity
-    
-    function Rep(algebra::LieAlgebra, components::Dict{Irrep, Int})
+    components::Dict{Irrep, T}  # Irrep -> multiplicity
+
+    function Rep(algebra::LieAlgebra, components::Dict{Irrep, T}) where {T<:Integer}
         # Verify all irreps are from the same algebra
         for irrep in keys(components)
             if irrep.algebra != algebra
                 error("All irreps must be from the same algebra")
             end
         end
-        new(algebra, components)
+        new{T}(algebra, components)
     end
 end
 
 # Construct from single irrep
-Rep(irrep::Irrep) = Rep(irrep.algebra, Dict(irrep => 1))
+Rep(irrep::Irrep) = Rep(irrep.algebra, Dict{Irrep, Int}(irrep => 1))
 
 # Construct from pairs of irreps and multiplicities
 function Rep(algebra::LieAlgebra, pairs::Pair{Irrep, Int}...)
@@ -54,7 +57,8 @@ end
 function Base.:+(rep1::Rep, rep2::Rep)
     @assert rep1.algebra == rep2.algebra "Representations must be from the same algebra"
     
-    components = copy(rep1.components)
+    T = promote_type(valtype(rep1.components), valtype(rep2.components))
+    components = Dict{Irrep, T}(rep1.components)
     for (irrep, mult) in rep2.components
         if haskey(components, irrep)
             components[irrep] += mult
@@ -101,13 +105,14 @@ Compute the tensor product of two irreducible representations using Klimyk's for
 
 Klimyk's formula (also known as the Racah-Speiser algorithm) states that:
 
-    rep1 ⊗ rep2 = Σ_μ Σ_{w ∈ W} sign(w) · [w(λ₁ + μ)]
+    rep1 ⊗ rep2 = Σ_μ sign(w) · [w(λ + μ + ρ) - ρ]
 
 where:
-- λ₁ is the highest weight of rep1 (we choose rep1 to be the smaller-dimensional one)
-- The first sum is over all weights μ in the character of rep2
-- W is the Weyl group
-- [w(λ₁ + μ)] means: reflect w(λ₁ + μ) to the dominant chamber and interpret as an irrep
+- λ is the highest weight of the larger-dimensional irrep
+- The sum is over all weights μ (with multiplicity) of the smaller irrep, whose
+  character is obtained from its dominant weights (Freudenthal) and Weyl orbits
+- w is the Weyl group element taking λ + μ + ρ to the dominant chamber; terms on a
+  chamber wall are dropped
 - sign(w) is the determinant of the Weyl group element w
 
 The formula automatically handles the necessary cancellations, and only dominant 
@@ -127,11 +132,11 @@ result = tensor_product(fund1, fund2)
 """
 function tensor_product(rep1::Irrep, rep2::Irrep)
     @assert rep1.algebra == rep2.algebra "Representations must be from the same algebra"
-    
+
     # Choose the order so we compute the character of the smaller representation
     dim1 = dimension(rep1)
     dim2 = dimension(rep2)
-    
+
     if dim1 <= dim2
         return _tensor_product_klimyk(rep1, rep2)
     else
@@ -148,30 +153,43 @@ Uses bilinearity: (⊕ᵢ nᵢRᵢ) ⊗ (⊕ⱼ mⱼSⱼ) = ⊕ᵢⱼ (nᵢmⱼ)
 """
 function tensor_product(rep1::Rep, rep2::Rep)
     @assert rep1.algebra == rep2.algebra "Representations must be from the same algebra"
-    
-    result = Rep(rep1.algebra, Dict{Irrep, Int}())
-    
-    for (irrep1, mult1) in rep1.components
-        for (irrep2, mult2) in rep2.components
-            # Compute irrep1 ⊗ irrep2
-            prod = tensor_product(irrep1, irrep2)
-            
-            # Add to result with combined multiplicity
-            for (irrep, mult) in prod.components
-                contribution = mult1 * mult2 * mult
-                if haskey(result.components, irrep)
-                    result.components[irrep] += contribution
-                else
-                    result.components[irrep] = contribution
-                end
-            end
-        end
+    g = rep1.algebra
+    ad = algebra_data(g)
+
+    # Expand the character of the smaller side once, then apply Klimyk's formula
+    # to every irrep of the other side.
+    if dimension(rep1) < dimension(rep2)
+        rep1, rep2 = rep2, rep1
     end
-    
-    # Remove zero entries
-    filter!(p -> p.second != 0, result.components)
-    
-    return result
+    W, M = _rep_full_character(rep2)
+    T = promote_type(valtype(rep1.components), valtype(rep2.components))
+    X = Dict{Vector{Int}, T}(irrep.dynkin_labels => mult for (irrep, mult) in rep1.components)
+    out = _virtual_times_character(ad, X, W, M)
+    return _dict_to_rep(g, out)
+end
+
+# All weights (merged) of a possibly reducible / virtual representation
+function _rep_full_character(rep::Rep)
+    g = rep.algebra
+    W = Vector{Vector{Int}}()
+    M = Vector{valtype(rep.components)}()
+    for (irrep, mult) in rep.components
+        mult == 0 && continue
+        w, m = _full_character(g, irrep.dynkin_labels)
+        append!(W, w)
+        append!(M, m .* mult)
+    end
+    length(rep.components) > 1 ? _merge_weights(W, M) : (W, M)
+end
+
+function _dict_to_rep(g::LieAlgebra, d::Dict{Vector{Int}, T}) where {T}
+    S = all(c -> typemin(Int) <= c <= typemax(Int), values(d)) ? Int : BigInt
+    comps = Dict{Irrep, S}()
+    for (λ, c) in d
+        c == 0 && continue
+        comps[Irrep(g, λ)] = S(c)
+    end
+    return Rep(g, comps)
 end
 
 """
@@ -187,61 +205,20 @@ tensor_product(rep1::Rep, rep2::Irrep) = tensor_product(rep1, Rep(rep2))
 Internal implementation of Klimyk's formula.
 
 Algorithm:
-1. Take the character of rep2 (all weights μ with their multiplicities)
-2. For each weight μ, compute λ₁ + μ + ρ (where ρ is the Weyl vector)
-3. Reflect to the dominant chamber: (λ₁ + μ + ρ)' with sign
-4. Subtract ρ: ν = (λ₁ + μ + ρ)' - ρ
-5. Check if ν is dominant - if yes, add [ν] with multiplicity = sign × mult_μ
+1. Take the character of rep1, the smaller irrep (all weights μ with multiplicities)
+2. For each weight μ, compute λ₂ + μ + ρ (λ₂ = highest weight of rep2, ρ = Weyl vector)
+3. Reflect to the dominant chamber: (λ₂ + μ + ρ)' with sign; drop it if it lies on a wall
+4. Subtract ρ: ν = (λ₂ + μ + ρ)' - ρ and add [ν] with multiplicity sign × mult_μ
 6. Cancellations from negative signs give the correct decomposition
 """
 function _tensor_product_klimyk(rep1::Irrep, rep2::Irrep)
     g = rep1.algebra
-    λ₁ = highest_weight(rep1)
-    ρ = weyl_vector(g)
-    
-    # Get the character of rep2 (all weights with multiplicities)
-    char2 = character(rep2)
-    
-    # Dictionary to accumulate multiplicities (can be negative during computation)
-    result_components = Dict{Irrep, Int}()
-    
-    # For each weight μ in the character of rep2
-    for wm in char2
-        μ = wm.weight
-        mult_μ = wm.multiplicity
-        
-        # Compute λ₁ + μ + ρ
-        shifted_weight = λ₁ + μ + ρ
-        
-        # Reflect to dominant chamber and get the sign
-        reflected_weight, sign = reflect_to_dominant(shifted_weight)
-        
-        # Subtract ρ to get the final weight
-        final_weight = reflected_weight - ρ
-        
-        # Check if final_weight is dominant
-        if is_dominant(final_weight)
-            # Check if the result has non-negative integer coordinates
-            if all(isinteger.(final_weight.coordinates)) && all(final_weight.coordinates .>= 0)
-                # The weight coordinates in fundamental weight basis ARE the Dynkin labels
-                labels = [Int(c) for c in final_weight.coordinates]
-                irrep = Irrep(g, labels)
-                
-                # Add the signed multiplicity from the character of rep2
-                contribution = sign * mult_μ
-                if haskey(result_components, irrep)
-                    result_components[irrep] += contribution
-                else
-                    result_components[irrep] = contribution
-                end
-            end
-        end
-    end
-    
-    # Remove zero entries (from cancellations)
-    filter!(p -> p.second != 0, result_components)
-    
-    return Rep(g, result_components)
+    ad = algebra_data(g)
+    W, M = _full_character(g, rep1.dynkin_labels)
+    out = Dict{Vector{Int}, Int}()
+    _klimyk!(out, ad, rep2.dynkin_labels .+ 1, 1, W, M)
+    filter!(p -> p.second != 0, out)
+    return _dict_to_rep(g, out)
 end
 
 # Unicode aliases (defined after tensor_product)
