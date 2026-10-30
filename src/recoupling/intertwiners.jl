@@ -355,26 +355,38 @@ end
 # ---------------------------------------------------------------------------
 
 """
-    fusion_tensor(a, b, c; basis = :lowering, T = Float64) -> Array{T, 4}
+    fusion_tensor(a, b, c; basis = :lowering, T = Float64, sparse = false)
 
 Clebsch–Gordan coefficients `C[i, j, k, μ] = ⟨a i; b j | c k; μ⟩` in orthonormal bases
 (TensorKit's `fusiontensor` layout): the intertwiner `μ` maps the basis vector `k` of
 `V_c` to `Σᵢⱼ C[i, j, k, μ] eᵢ ⊗ eⱼ`.  For each `μ` the columns are orthonormal.
 Basis vectors are ordered as in [`basis_weights`](@ref); the highest weight of each
 irrep comes first.
+
+With `sparse = true` the same coefficients are returned as a `SparseMatrixCSC` of size
+`(dim a · dim b) × (dim c · N)`, with row `i + dim(a)·(j − 1)` and column
+`k + dim(c)·(μ − 1)`: the isometry `V_c ⊗ ℂᴺ → V_a ⊗ V_b`.  Only entries with
+`|C| > 1e-14` are stored.
 """
-function fusion_tensor(a::Irrep, b::Irrep, c::Irrep; basis::Symbol = :lowering, T::Type = Float64)
+function fusion_tensor(a::Irrep, b::Irrep, c::Irrep; basis::Symbol = :lowering, T::Type = Float64,
+                       sparse::Bool = false)
     _isfloat(T) || error("fusion_tensor needs a floating-point type (orthonormal basis)")
     X = intertwiner(a, b, c; basis, T)
+    if sparse
+        return _memo((:fusion_tensor_sparse, X)) do
+            _fusion_tensor_sparse(X)
+        end::SparseMatrixCSC{T, Int}
+    end
+    n = dimension(X.Ma) * dimension(X.Mb) * dimension(X.Mc) * X.N
+    n > 10^7 && return _fusion_tensor(X)          # too large to keep
     return _memo((:fusion_tensor, X)) do
         _fusion_tensor(X)
     end::Array{T, 4}
 end
 
-function _fusion_tensor(X::Intertwiner{T}) where {T}
+# visit every coefficient: f(i, j, k, μ, value)
+function _foreach_coefficient(f, X::Intertwiner{T}) where {T}
     wa, wb, wc = X.Ma.ws, X.Mb.ws, X.Mc.ws
-    C = zeros(T, dimension(X.Ma), dimension(X.Mb), dimension(X.Mc), X.N)
-    X.N == 0 && return C
     for kc in 1:length(wc)
         Y = _phi(X, kc)
         L = _layout(X, kc)
@@ -385,10 +397,29 @@ function _fusion_tensor(X::Intertwiner{T}) where {T}
             for μ in 1:X.N, m in 1:wc.mult[kc]
                 blk = reshape(view(Y, r, m, μ), ma, mb)
                 for j in 1:mb, i in 1:ma
-                    C[wa.offset[ka] + i, wb.offset[kb] + j, wc.offset[kc] + m, μ] = blk[i, j]
+                    f(wa.offset[ka] + i, wb.offset[kb] + j, wc.offset[kc] + m, μ, blk[i, j])
                 end
             end
         end
     end
+end
+
+function _fusion_tensor(X::Intertwiner{T}) where {T}
+    C = zeros(T, dimension(X.Ma), dimension(X.Mb), dimension(X.Mc), X.N)
+    X.N == 0 && return C
+    _foreach_coefficient(X) do i, j, k, μ, v
+        C[i, j, k, μ] = v
+    end
     return C
+end
+
+function _fusion_tensor_sparse(X::Intertwiner{T}) where {T}
+    da, db, dc = dimension(X.Ma), dimension(X.Mb), dimension(X.Mc)
+    rows = Int[]; cols = Int[]; vals = T[]
+    X.N == 0 || _foreach_coefficient(X) do i, j, k, μ, v
+        if abs(v) > 1e-14
+            push!(rows, i + da * (j - 1)); push!(cols, k + dc * (μ - 1)); push!(vals, v)
+        end
+    end
+    return sparse(rows, cols, vals, da * db, dc * X.N)
 end

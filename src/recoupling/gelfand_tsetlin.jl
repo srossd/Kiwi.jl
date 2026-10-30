@@ -55,21 +55,33 @@ function _gt_weight(m::Vector{Vector{Int}})
     return [w[i] - w[i + 1] for i in 1:(N - 1)]
 end
 
+# c_k(m) as a rational num // den (Int128, falling back to BigInt on overflow)
 function _gt_coefficient(m::Vector{Vector{Int}}, k::Int, l::Int)
-    num = big(-1)
+    try
+        return _gt_coefficient(Int128, m, k, l)
+    catch err
+        err isa OverflowError || rethrow()
+        return _gt_coefficient(BigInt, m, k, l)
+    end
+end
+
+function _gt_coefficient(::Type{I}, m::Vector{Vector{Int}}, k::Int, l::Int) where {I}
+    num = -one(I)
     mkl = m[l][k]
     for k′ in 1:(l + 1)
-        num *= m[l + 1][k′] - mkl + k - k′
+        num = Base.checked_mul(num, I(m[l + 1][k′] - mkl + k - k′))
+        iszero(num) && return zero(I), one(I)
     end
     for k′ in 1:(l - 1)
-        num *= m[l - 1][k′] - mkl + k - k′ - 1
+        num = Base.checked_mul(num, I(m[l - 1][k′] - mkl + k - k′ - 1))
+        iszero(num) && return zero(I), one(I)
     end
-    den = big(1)
+    den = one(I)
     for k′ in 1:l
         k′ == k && continue
-        den *= (m[l][k′] - mkl + k - k′) * (m[l][k′] - mkl + k - k′ - 1)
+        den = Base.checked_mul(den, I((m[l][k′] - mkl + k - k′) * (m[l][k′] - mkl + k - k′ - 1)))
     end
-    return iszero(num) ? big(0) // 1 : num // den
+    return num, den
 end
 
 function _gt_module(rep::Irrep, ::Type{T}) where {T}
@@ -87,9 +99,10 @@ function _gt_module(rep::Irrep, ::Type{T}) where {T}
         length(byweight[k]) == ws.mult[k] || error("GT pattern count disagrees with Freudenthal")
         sort!(byweight[k], by = key, rev = true)
     end
-    pos = Dict{Vector{Vector{Int}}, Int}()
+    flat(m) = reduce(vcat, m)
+    pos = Dict{Vector{Int}, Int}()
     for k in 1:nw, (j, m) in enumerate(byweight[k])
-        pos[m] = j
+        pos[flat(m)] = j
     end
     empty = zeros(T, 0, 0)
     E = fill(empty, n, nw)
@@ -99,13 +112,13 @@ function _gt_module(rep::Irrep, ::Type{T}) where {T}
         ku == 0 && continue
         El = zeros(T, ws.mult[ku], ws.mult[k])
         for (j, m) in enumerate(byweight[k]), kk in 1:l
-            c = _gt_coefficient(m, kk, l)
-            iszero(c) && continue
-            m′ = [copy(r) for r in m]
-            m′[l][kk] += 1
-            j′ = get(pos, m′, 0)
+            num, den = _gt_coefficient(m, kk, l)
+            iszero(num) && continue
+            key = flat(m)
+            key[(l - 1) * l ÷ 2 + kk] += 1            # entry m_{kk,l} in the flattened rows
+            j′ = get(pos, key, 0)
             j′ == 0 && continue
-            El[j′, j] = sqrt(T(c))
+            El[j′, j] = sqrt(T(num) / T(den))
         end
         E[l, k] = El
         F[l, k] = Matrix(transpose(El))
