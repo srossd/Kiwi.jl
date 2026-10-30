@@ -162,7 +162,8 @@ function _solve(A::AbstractMatrix{T}, B::AbstractMatrix{T}) where {T}
     m = size(M, 2)
     for c in 1:n
         p = findfirst(r -> !iszero(M[r, c]), c:n)
-        p === nothing && error("singular matrix in exact solve")
+        p === nothing && error("singular matrix in exact solve",
+                               T <: Fp ? " (the prime $(T.parameters[1]) divides a Gram determinant; use another prime)" : "")
         p += c - 1
         if p != c
             M[c, :], M[p, :] = M[p, :], M[c, :]

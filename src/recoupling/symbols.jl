@@ -154,56 +154,92 @@ function _overlap(Ma, Mb, Mc, L::Dict, R::Dict, NA, NB, NC, ND, ::Type{T}) where
     return F
 end
 
+# ---------------------------------------------------------------------------
+# Raw (unnormalised) and normalised symbols
+#
+# Raw gauge.  With an exact scalar type (Rational{BigInt}, Fp{P}) the modules use the
+# unnormalised lowering basis and the intertwiners X_μ of each vertex are mutually
+# orthogonal but unnormalised, with squared norms ⟨X_μ, X_μ⟩ = `norms2[μ]` (the theta
+# value of the vertex).  The raw symbols are the same contractions as the normalised
+# ones, evaluated on these vertices: every entry is a rational function of the data,
+# with no square roots.  The normalised symbol is recovered by dividing each entry by
+# the square root of the product of the norms² of the vertices it involves.  With a
+# floating-point type the vertices are orthonormal and all norms² are one.
+# ---------------------------------------------------------------------------
+
+_check_normalisable(T) = (T <: Fp) &&
+    throw(ArgumentError("normalised symbols are not defined over a prime field; use normalized = false"))
+
+# entrywise s·√(x²/n) as SqrtRational (exact) or x/√n (floats)
+_normalise(x, n, ::Type{T}) where {T} =
+    _isfloat(T) ? x / sqrt(n) : SqrtRational(sign(x), Rational{BigInt}(x)^2 / Rational{BigInt}(n))
+
 """
-    fsymbol(a, b, c, d, e, f; basis = :lowering, T = Float64) -> Array{T, 4}
+    fsymbol(a, b, c, d, e, f; basis = :lowering, T = Float64, normalized = true)
 
 The F-symbol (6j symbol) `F^{abc}_d[e, f]` in TensorKit's convention, an array of
 size `(N^{ab}_e, N^{ec}_d, N^{bc}_f, N^{af}_d)` relating the fusion trees
 ((a ⊗ b → e) ⊗ c → d) and (a ⊗ (b ⊗ c → f) → d).
 
-With `T = Rational{BigInt}` (exact arithmetic) and all four multiplicities equal to
-one, the result is returned as an exact [`SqrtRational`](@ref).
+* `normalized = true`: unitary F-symbol.  Floating-point `T` gives an `Array{T, 4}`;
+  `T = Rational{BigInt}` gives exact entries as [`SqrtRational`](@ref) (any
+  multiplicity).
+* `normalized = false`: the raw F-symbol in the rational gauge, for any `T`
+  (including `Fp{P}`), as a named tuple `(F, norms)` with `F::Array{T, 4}` and
+  `norms = (nᵃᵇₑ, nᵉᶜ_d, nᵇᶜ_f, nᵃᶠ_d)` the squared norms of the four vertices.  Then
+  `F_unitary[μ, ν, κ, λ] = F[μ, ν, κ, λ] / √(nᵃᵇₑ[μ] nᵉᶜ_d[ν] nᵇᶜ_f[κ] nᵃᶠ_d[λ])`.
 """
 function fsymbol(a::Irrep, b::Irrep, c::Irrep, d::Irrep, e::Irrep, f::Irrep;
-                 basis::Symbol = :lowering, T::Type = Float64)
+                 basis::Symbol = :lowering, T::Type = Float64, normalized::Bool = true)
     key = (:F, a.algebra, a.dynkin_labels, b.dynkin_labels, c.dynkin_labels, d.dynkin_labels,
            e.dynkin_labels, f.dynkin_labels, basis, T)
-    return _memo(() -> _fsymbol(a, b, c, d, e, f, basis, T), key)
+    raw = _memo(() -> _fsymbol_raw(a, b, c, d, e, f, basis, T), key)
+    normalized || return raw
+    _isfloat(T) && return raw.F
+    _check_normalisable(T)
+    nA, nB, nC, nD = raw.norms
+    return [_normalise(raw.F[μ, ν, κ, λ], nA[μ] * nB[ν] * nC[κ] * nD[λ], T)
+            for μ in axes(raw.F, 1), ν in axes(raw.F, 2), κ in axes(raw.F, 3), λ in axes(raw.F, 4)]
 end
 
-function _fsymbol(a, b, c, d, e, f, basis, T)
+function _fsymbol_raw(a, b, c, d, e, f, basis, T)
     NA, NB, NC, ND = nsymbol(a, b, e), nsymbol(e, c, d), nsymbol(b, c, f), nsymbol(a, f, d)
     if NA * NB * NC * ND == 0
-        return _isfloat(T) ? zeros(T, NA, NB, NC, ND) : zeros(SqrtRational, NA, NB, NC, ND)
+        return (F = zeros(T, NA, NB, NC, ND), norms = (ones(T, NA), ones(T, NB), ones(T, NC), ones(T, ND)))
     end
     A = intertwiner(a, b, e; basis, T); B = intertwiner(e, c, d; basis, T)
     C = intertwiner(b, c, f; basis, T); D = intertwiner(a, f, d; basis, T)
     L = _left_vectors(A, B)
     R = _right_vectors(C, D)
     F = _overlap(A.Ma, A.Mb, B.Mb, L, R, NA, NB, NC, ND, T)
-    _isfloat(T) && return F
-    (NA, NB, NC, ND) == (1, 1, 1, 1) ||
-        error("exact F-symbols are implemented for multiplicity-free vertices; use T = BigFloat")
-    num = F[1, 1, 1, 1]
-    den = A.norms2[1] * B.norms2[1] * C.norms2[1] * D.norms2[1]
-    return fill(SqrtRational(sign(num), num^2 / den), 1, 1, 1, 1)
+    return (F = F, norms = (A.norms2, B.norms2, C.norms2, D.norms2))
 end
 
 """
-    rsymbol(a, b, c; basis = :lowering, T = Float64) -> Matrix{T}
+    rsymbol(a, b, c; basis = :lowering, T = Float64, normalized = true)
 
 The R-symbol `R^{ab}_c[μ, ν]` (TensorKit convention): the swap V_a ⊗ V_b → V_b ⊗ V_a
 maps the intertwiner μ of `c → a ⊗ b` to `Σ_ν R[μ, ν]` times the intertwiner ν of
-`c → b ⊗ a`.
+`c → b ⊗ a` (the vertex swap).
+
+`normalized = false` returns `(R, norms)` in the rational gauge, for any `T`, with
+`norms = (nᵃᵇ_c, nᵇᵃ_c)` and `R_unitary[μ, ν] = R[μ, ν] / √(nᵃᵇ_c[μ] nᵇᵃ_c[ν])`.
+With `T = Rational{BigInt}` and `normalized = true` the entries are `SqrtRational`.
 """
-function rsymbol(a::Irrep, b::Irrep, c::Irrep; basis::Symbol = :lowering, T::Type = Float64)
+function rsymbol(a::Irrep, b::Irrep, c::Irrep; basis::Symbol = :lowering, T::Type = Float64,
+                 normalized::Bool = true)
     key = (:R, a.algebra, a.dynkin_labels, b.dynkin_labels, c.dynkin_labels, basis, T)
-    return _memo(() -> _rsymbol(a, b, c, basis, T), key)
+    raw = _memo(() -> _rsymbol_raw(a, b, c, basis, T), key)
+    normalized || return raw
+    _isfloat(T) && return raw.R
+    _check_normalisable(T)
+    nA, nB = raw.norms
+    return [_normalise(raw.R[μ, ν], nA[μ] * nB[ν], T) for μ in axes(raw.R, 1), ν in axes(raw.R, 2)]
 end
 
-function _rsymbol(a, b, c, basis, T)
+function _rsymbol_raw(a, b, c, basis, T)
     N = nsymbol(a, b, c)
-    N == 0 && return zeros(T, 0, 0)
+    N == 0 && return (R = zeros(T, 0, 0), norms = (T[], T[]))
     A = intertwiner(a, b, c; basis, T)
     B = intertwiner(b, a, c; basis, T)
     LA, LB = A.layouts[1], B.layouts[1]
@@ -222,37 +258,66 @@ function _rsymbol(a, b, c, basis, T)
             R[μ, ν] += tr(Ablk * (Gb * Bblk * Ga))
         end
     end
-    _isfloat(T) && return R
-    return [SqrtRational(sign(R[μ, ν]), R[μ, ν]^2 / (A.norms2[μ] * B.norms2[ν])) for μ in 1:N, ν in 1:N]
+    return (R = R, norms = (A.norms2, B.norms2))
+end
+
+# full (block-diagonal) Gram matrix of a module's basis; the identity if orthonormal
+function _full_gram(M::IrrepModule{T}) where {T}
+    d = dimension(M)
+    G = zeros(T, d, d)
+    ws = M.ws
+    for k in 1:length(ws)
+        r = (ws.offset[k] + 1):(ws.offset[k] + ws.mult[k])
+        G[r, r] = isorthonormal(M) ? Matrix{T}(I, ws.mult[k], ws.mult[k]) : M.gram[k]
+    end
+    return G
 end
 
 """
-    twoj(a; basis = :lowering, T = Float64) -> Matrix{T}
+    twoj(a; basis = :lowering, T = Float64, normalized = true)
 
 The 2j symbol `Z_a = √dim(a) · C^{a ā}_1[:, :, 1, 1]`, a real orthogonal matrix
 (rows: basis of `a`, columns: basis of `ā`) with `Z_a[hw(a), lw(ā)] > 0`.
+
+`normalized = false` gives the cup in the rational gauge, for any `T`: a named tuple
+`(X, norm2, gram_a, gram_abar)` where `X[i, j]` are the coordinates of the
+(unnormalised) invariant vector of `V_a ⊗ V_ā` in the module bases, `norm2` its
+squared norm and `gram_a`, `gram_abar` the Gram matrices of the bases.  With
+`G = RᵀR` (Cholesky), `Z_a = √dim(a) · R_a X R_āᵀ / √norm2`.
 """
-function twoj(a::Irrep; basis::Symbol = :lowering, T::Type = Float64)
+function twoj(a::Irrep; basis::Symbol = :lowering, T::Type = Float64, normalized::Bool = true)
+    if !normalized
+        X = intertwiner(a, conjugate(a), _unit(a.algebra); basis, T)
+        C = _fusion_tensor(X)
+        return (X = C[:, :, 1, 1], norm2 = X.norms2[1], gram_a = _full_gram(X.Ma), gram_abar = _full_gram(X.Mb))
+    end
+    _isfloat(T) || throw(ArgumentError("the normalised 2j symbol needs a floating-point type; use normalized = false"))
     C = fusion_tensor(a, conjugate(a), _unit(a.algebra); basis, T)
     return sqrt(T(dimension(a))) * C[:, :, 1, 1]
 end
 
 """
-    onej(a; basis = :lowering, T = Float64) -> Int
+    onej(a; basis = :lowering) -> Int
 
 The 1j symbol ϰ_a = ±1 defined by `twoj(ā) = ϰ_a · transpose(twoj(a))`.  For
 self-conjugate `a` this is the Frobenius–Schur indicator; it always equals
-TensorKit's Frobenius–Schur phase `sign(F^{a ā a}_a[1, 1])`.
+TensorKit's Frobenius–Schur phase `sign(F^{a ā a}_a[1, 1])`.  In the lowering basis
+it is computed once, in exact arithmetic, and cached per irrep.
 """
 function onej(a::Irrep; basis::Symbol = :lowering, T::Type = Float64)
-    return _memo(() -> _onej(a, basis, T), (:onej, a.algebra, a.dynkin_labels, basis, T))::Int
+    return _memo(() -> _onej(a, basis), (:onej, a.algebra, a.dynkin_labels, basis))::Int
 end
 
-function _onej(a, basis, T)
-    Za = twoj(a; basis, T)
-    Zab = twoj(conjugate(a); basis, T)
-    s = sum(Zab .* transpose(Za)) / dimension(a)
-    abs(abs(s) - 1) < 1e-8 || error("2j symbols of $a and its conjugate are not related by a sign")
+function _onej(a, basis)
+    # basis-dependent sign; exact in the lowering basis, floating point for GT
+    T = basis == :lowering ? Rational{BigInt} : Float64
+    ab = conjugate(a)
+    Za = twoj(a; basis, T, normalized = false)
+    Zab = twoj(ab; basis, T, normalized = false)
+    # ⟨cup(ā), swap(cup(a))⟩ in the metric of V_ā ⊗ V_a
+    s = tr(transpose(Zab.X) * Zab.gram_a * transpose(Za.X) * Za.gram_a)
+    _isfloat(T) && abs(abs(s) / sqrt(Za.norm2 * Zab.norm2) - 1) > 1e-8 &&
+        error("2j symbols of $a and its conjugate are not related by a sign")
     return s > 0 ? 1 : -1
 end
 
@@ -278,30 +343,59 @@ function threej(a::Irrep, b::Irrep, c::Irrep; basis::Symbol = :lowering, T::Type
 end
 
 """
-    asymbol(a, b, c; basis = :lowering, T = Float64) -> Matrix{T}
+    asymbol(a, b, c; basis = :lowering, T = Float64, normalized = true)
 
-TensorKit's A-symbol `A^{ab}_c`, computed from the F-symbol as
-`√(dim a dim b / dim c) · conj(ϰ_a F^{ā a b}_b[1, c])`, reshaped to
-`(N^{ab}_c, N^{āc}_b)`.
+TensorKit's A-symbol `A^{ab}_c = √(dim a dim b / dim c) · ϰ_a F^{ā a b}_b[1, c]`,
+reshaped to `(N^{ab}_c, N^{āc}_b)`: it relates the vertex `c → a ⊗ b` to the vertex
+`b → ā ⊗ c` obtained by bending the leg `a`.
+
+`normalized = false` returns, for any `T`, `(A, norms, scale2)` with
+`A = ϰ_a · F_raw^{ā a b}_b[1, c]` (rational gauge),
+`norms = (n_cup, n_unit, nᵃᵇ_c, nᵃ̄ᶜ_b)` (the vertices ā ⊗ a → 1, 1 ⊗ b → b, a ⊗ b → c,
+ā ⊗ c → b) and `scale2 = dim a · dim b // dim c`, so that
+`A_unitary[μ, ν] = √scale2 · A[μ, ν] / √(n_cup · n_unit · nᵃᵇ_c[μ] · nᵃ̄ᶜ_b[ν])`.
 """
-function asymbol(a::Irrep, b::Irrep, c::Irrep; basis::Symbol = :lowering, T::Type = Float64)
+function asymbol(a::Irrep, b::Irrep, c::Irrep; basis::Symbol = :lowering, T::Type = Float64,
+                 normalized::Bool = true)
     ab = conjugate(a)
+    shape = (nsymbol(a, b, c), nsymbol(ab, c, b))
+    κ = onej(a; basis)
+    scale2 = Rational{BigInt}(dimension(a)) * dimension(b) // dimension(c)
+    if !normalized
+        raw = fsymbol(ab, a, b, b, _unit(a.algebra), c; basis, T, normalized = false)
+        n1, n2, n3, n4 = raw.norms
+        return (A = κ .* reshape(raw.F, shape), norms = (n1[1], n2[1], n3, n4), scale2 = scale2)
+    end
     F = fsymbol(ab, a, b, b, _unit(a.algebra), c; basis, T)
-    s = sqrt(T(dimension(a)) * dimension(b) / dimension(c)) * onej(a; basis)
-    return reshape(s .* F, nsymbol(a, b, c), nsymbol(ab, c, b))
+    _isfloat(T) && return reshape(sqrt(T(scale2)) * κ .* F, shape)
+    return reshape([SqrtRational(κ * x.sign, x.square * scale2) for x in F], shape)
 end
 
 """
-    bsymbol(a, b, c; basis = :lowering, T = Float64) -> Matrix{T}
+    bsymbol(a, b, c; basis = :lowering, T = Float64, normalized = true)
 
 TensorKit's B-symbol `B^{ab}_c = √(dim a dim b / dim c) · F^{a b b̄}_a[c, 1]`, reshaped
-to `(N^{ab}_c, N^{c b̄}_a)`.
+to `(N^{ab}_c, N^{c b̄}_a)`: it relates the vertex `c → a ⊗ b` to the vertex
+`a → c ⊗ b̄` obtained by bending the leg `b`.
+
+`normalized = false` returns, for any `T`, `(B, norms, scale2)` with
+`B = F_raw^{a b b̄}_a[c, 1]`, `norms = (nᵃᵇ_c, nᶜᵇ̄_a, n_cup, n_unit)` (the vertices
+a ⊗ b → c, c ⊗ b̄ → a, b ⊗ b̄ → 1, a ⊗ 1 → a) and `scale2 = dim a · dim b // dim c`:
+`B_unitary[μ, ν] = √scale2 · B[μ, ν] / √(nᵃᵇ_c[μ] · nᶜᵇ̄_a[ν] · n_cup · n_unit)`.
 """
-function bsymbol(a::Irrep, b::Irrep, c::Irrep; basis::Symbol = :lowering, T::Type = Float64)
+function bsymbol(a::Irrep, b::Irrep, c::Irrep; basis::Symbol = :lowering, T::Type = Float64,
+                 normalized::Bool = true)
     bb = conjugate(b)
+    shape = (nsymbol(a, b, c), nsymbol(c, bb, a))
+    scale2 = Rational{BigInt}(dimension(a)) * dimension(b) // dimension(c)
+    if !normalized
+        raw = fsymbol(a, b, bb, a, c, _unit(a.algebra); basis, T, normalized = false)
+        n1, n2, n3, n4 = raw.norms
+        return (B = reshape(raw.F, shape), norms = (n1, n2, n3[1], n4[1]), scale2 = scale2)
+    end
     F = fsymbol(a, b, bb, a, c, _unit(a.algebra); basis, T)
-    s = sqrt(T(dimension(a)) * dimension(b) / dimension(c))
-    return reshape(s .* F, nsymbol(a, b, c), nsymbol(c, bb, a))
+    _isfloat(T) && return reshape(sqrt(T(scale2)) .* F, shape)
+    return reshape([SqrtRational(x.sign, x.square * scale2) for x in F], shape)
 end
 
 # ---------------------------------------------------------------------------

@@ -122,6 +122,15 @@ j(x) = Irrep(SU(2), x)               # spin x/2
 fsymbol(j(1), j(1), j(2), j(2), j(0), j(1); T = Rational{BigInt})   # exact: -√(1/3)
 ```
 
+Every symbol also has a raw form (`normalized = false`) in a rational gauge (unnormalised
+vertices with their squared norms returned separately, no square roots), which runs
+unchanged over `Rational{BigInt}` or a prime field `Kiwi.Fp{P}`:
+
+```julia
+fsymbol(a, a, a, a, a, a; T = Rational{BigInt}, normalized = false)   # (F, norms)
+fsymbol(a, a, a, a, a, a; T = Kiwi.Fp{2^61 - 1}, normalized = false)  # residues mod p
+```
+
 Clebsch–Gordan coefficients are built from highest-weight vectors (via the
 Parthasarathy–Ranga Rao–Varadarajan description of the multiplicity space) and
 lowered on demand; F- and R-symbols are evaluated on highest-weight vectors

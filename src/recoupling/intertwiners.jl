@@ -125,13 +125,14 @@ multiplicity convention: columns of `X` (layout `L`).  Floating-point modules gi
 orthonormal columns (`norms2` all one); exact modules give mutually orthogonal,
 unnormalised columns with squared norms `norms2`.
 """
-function _highest_weight_vectors(Ma::IrrepModule{T}, Mb::IrrepModule{T}, c::Vector{Int}) where {T}
+function _highest_weight_vectors(Ma::IrrepModule{T}, Mb::IrrepModule{T}, c::Vector{Int};
+                                 pivots::Union{Nothing, Vector{Int}} = nothing) where {T}
     wa, wb = Ma.ws, Mb.ws
     a = wa.irrep.dynkin_labels
     n = length(a)
     L = PairLayout(wa, wb, c)
     kb0 = get(wb.index, c .- a, 0)
-    (kb0 == 0 || isempty(L.ka) || L.ka[1] != 1) && return L, zeros(T, L.total, 0), T[]
+    (kb0 == 0 || isempty(L.ka) || L.ka[1] != 1) && return L, zeros(T, L.total, 0), T[], Int[]
     mb0 = wb.mult[kb0]
     # 1. PRV conditions on u ∈ V_b(c − a)
     ops = Matrix{T}[]
@@ -152,7 +153,7 @@ function _highest_weight_vectors(Ma::IrrepModule{T}, Mb::IrrepModule{T}, c::Vect
     end
     U = isempty(ops) ? Matrix{T}(I, mb0, mb0) : _nullspace(reduce(vcat, ops))
     N = size(U, 2)
-    N == 0 && return L, zeros(T, L.total, 0), T[]
+    N == 0 && return L, zeros(T, L.total, 0), T[], Int[]
     # 2. propagate each u down the weights of V_a
     X = zeros(T, L.total, N)
     for k in 1:N
@@ -181,30 +182,56 @@ function _highest_weight_vectors(Ma::IrrepModule{T}, Mb::IrrepModule{T}, c::Vect
         end
     end
     # 3. multiplicity convention: Gram–Schmidt of the projections of v_a ⊗ f_j
+    if _isfloat(T)
+        # rescale the columns (and u) to unit norm: at large weights the propagated
+        # vectors can be very large compared with their top component
+        for k in 1:N
+            s = sqrt(_inner(Ma, Mb, L, view(X, :, k), view(X, :, k)))
+            X[:, k] ./= s
+            U[:, k] ./= s
+        end
+    end
     G = [_inner(Ma, Mb, L, view(X, :, k), view(X, :, l)) for k in 1:N, l in 1:N]
     Gb = isorthonormal(Mb) ? Matrix{T}(I, mb0, mb0) : Mb.gram[kb0]
     t = transpose(U) * Gb                       # t[k, j] = ⟨X_k, v_a ⊗ f_j⟩
     coeffs = _solve(G, t)                       # column j: Π_K(v_a ⊗ f_j) in the X basis
+    refs = [transpose(coeffs[:, j]) * G * coeffs[:, j] for j in 1:mb0]   # ‖Π_K(v_a ⊗ f_j)‖²
+    maxref = _isfloat(T) ? maximum(refs) : zero(T)
     basis = Vector{Vector{T}}()
     norms2 = T[]
-    for j in 1:mb0
+    used = Int[]
+    for j in (pivots === nothing ? (1:mb0) : pivots)
+        # floats: skip projections that vanish relative to the largest one, and vectors
+        # dependent on earlier ones (residual small relative to their own norm)
+        _isfloat(T) && refs[j] <= _tol(T) * maxref && continue
         y = coeffs[:, j]
         for (z, nz) in zip(basis, norms2)
             y = y - ((transpose(z) * G * y) / nz) * z
         end
         r = transpose(y) * G * y
-        _is_negligible(r, transpose(coeffs[:, j]) * G * coeffs[:, j], T) && continue
+        if _isfloat(T)
+            r <= _tol(T) * refs[j] && continue
+        elseif iszero(r)
+            pivots === nothing && continue
+            error("multiplicity basis of $(Mc_label(Ma, Mb, c)) degenerates modulo ",
+                  "$(T.parameters[1]); use another prime")
+        end
         if _isfloat(T)
             y = y / sqrt(r)
             r = one(T)
         end
         push!(basis, y)
+        push!(used, j)
         push!(norms2, r)
         length(basis) == N && break
     end
-    length(basis) == N || error("could not fix the multiplicity basis")
-    return L, X * reduce(hcat, basis), norms2
+    length(basis) == N ||
+        error("could not fix the multiplicity basis of $(Mc_label(Ma, Mb, c)) (found $(length(basis)) of $N ",
+              "independent projections; for Float64 try T = BigFloat)")
+    return L, X * reduce(hcat, basis), norms2, used
 end
+
+Mc_label(Ma, Mb, c) = "$(Ma.ws.irrep.dynkin_labels) ⊗ $(Mb.ws.irrep.dynkin_labels) → $c"
 
 """
     Intertwiner{T}
@@ -218,6 +245,7 @@ struct Intertwiner{T}
     Mc::IrrepModule{T}
     N::Int
     norms2::Vector{T}
+    pivots::Vector{Int}                    # j of the projections Π_K(v_a ⊗ f_j) that fixed the basis
     layouts::Dict{Int, PairLayout}
     phi::Dict{Int, Array{T, 3}}            # weight index of c ↦ total × mult_c × N
     lock::ReentrantLock
@@ -229,12 +257,20 @@ Base.show(io::IO, X::Intertwiner{T}) where {T} =
 
 function Intertwiner(Ma::IrrepModule{T}, Mb::IrrepModule{T}, Mc::IrrepModule{T}) where {T}
     c = Mc.ws.irrep.dynkin_labels
-    L, X, norms2 = _highest_weight_vectors(Ma, Mb, c)
+    # over primes other than the reference prime, reuse the reference choice of projections
+    pivots = nothing
+    if T <: Fp && T !== Fp{_P61}
+        pivots = intertwiner(Ma.ws.irrep, Mb.ws.irrep, Mc.ws.irrep; basis = Ma.basis, T = Fp{_P61}).pivots
+    end
+    L, X, norms2, used = _highest_weight_vectors(Ma, Mb, c; pivots)
     N = size(X, 2)
+    Nexp = nsymbol(Ma.ws.irrep, Mb.ws.irrep, Mc.ws.irrep)
+    N == Nexp || error("$(Mc_label(Ma, Mb, c)): found $N highest-weight vectors, expected multiplicity $Nexp",
+                       T <: Fp ? " (rank drop modulo $(T.parameters[1]); use another prime)" : "")
     phi = Dict{Int, Array{T, 3}}()
     layouts = Dict{Int, PairLayout}(1 => L)
     N > 0 && (phi[1] = reshape(X, L.total, 1, N))
-    return Intertwiner{T}(Ma, Mb, Mc, N, norms2, layouts, phi, ReentrantLock())
+    return Intertwiner{T}(Ma, Mb, Mc, N, norms2, used, layouts, phi, ReentrantLock())
 end
 
 function _layout(X::Intertwiner, kc::Int)
@@ -367,11 +403,24 @@ With `sparse = true` the same coefficients are returned as a `SparseMatrixCSC` o
 `(dim a · dim b) × (dim c · N)`, with row `i + dim(a)·(j − 1)` and column
 `k + dim(c)·(μ − 1)`: the isometry `V_c ⊗ ℂᴺ → V_a ⊗ V_b`.  Only entries with
 `|C| > 1e-14` are stored.
+
+With `normalized = false` (any scalar type, including `Rational{BigInt}` and `Fp{P}`)
+the result is the named tuple `(C, gram_a, gram_b, gram_c, norms2)` in the rational
+gauge: `φ_μ(b_k) = Σᵢⱼ C[i, j, k, μ] bᵢ ⊗ bⱼ` for the (unnormalised) module bases `b`,
+whose Gram matrices are `gram_*`, and `⟨φ_μ(v), φ_ν(w)⟩ = δ_μν norms2[μ] ⟨v, w⟩`.  With
+`G = RᵀR` (Cholesky) the unitary tensor is
+`(R_a ⊗ R_b) C[:, :, :, μ] R_c⁻¹ / √norms2[μ]`.
 """
 function fusion_tensor(a::Irrep, b::Irrep, c::Irrep; basis::Symbol = :lowering, T::Type = Float64,
-                       sparse::Bool = false)
-    _isfloat(T) || error("fusion_tensor needs a floating-point type (orthonormal basis)")
+                       sparse::Bool = false, normalized::Bool = true)
     X = intertwiner(a, b, c; basis, T)
+    if !normalized
+        sparse && throw(ArgumentError("sparse = true is only available for normalized tensors"))
+        return (C = _fusion_tensor(X), gram_a = _full_gram(X.Ma), gram_b = _full_gram(X.Mb),
+                gram_c = _full_gram(X.Mc), norms2 = X.norms2)
+    end
+    _isfloat(T) || throw(ArgumentError("normalized Clebsch–Gordan tensors need a floating-point type; " *
+                                       "use normalized = false for exact or modular arithmetic"))
     if sparse
         return _memo((:fusion_tensor_sparse, X)) do
             _fusion_tensor_sparse(X)

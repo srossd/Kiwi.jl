@@ -10,7 +10,10 @@
 # * The candidates spanning V(λ)_μ are the vectors Fᵢ b, for i = 1, …, n in turn and
 #   b running over the basis of V(λ)_{μ+αᵢ} in order.  The basis of V(λ)_μ is the
 #   first independent subfamily of the candidates, taken greedily in this order.
-# * Exact arithmetic keeps these vectors (Gram matrix = Shapovalov form).  The
+# * Exact arithmetic keeps these vectors (Gram matrix = Shapovalov form).  Over Q the
+#   choice is decided exactly; over a prime field Fp{P} it is decided modulo the
+#   reference prime 2⁶¹ − 1 and reused for every other P, so all primes reduce the same
+#   rational basis.  The
 #   orthonormal basis is their Gram–Schmidt orthonormalisation in the same order,
 #   so that each new vector has positive overlap with its candidate.  With that
 #   normalisation Fᵢ has nonnegative entries along the candidate it came from, and
@@ -216,7 +219,7 @@ large prime (a false dependence would show up as a wrong multiplicity, which is
 checked against Freudenthal's formula).
 """
 function _exact_selection(rep::Irrep)
-    M = _lowering_module(rep, Fp{_P61}; orthonormal = false)
+    M = irrep_module(rep; T = Fp{_P61})
     ws = M.ws
     out = Vector{Vector{Int}}(undef, length(ws))
     out[1] = Int[]
@@ -275,6 +278,12 @@ function _build_module(rep::Irrep, basis::Symbol, ::Type{T}) where {T}
                 err isa _SelectionError || rethrow()
                 return _lowering_module(rep, T; selection = _exact_selection(rep))
             end
+        end
+        # Over other primes, reuse the selection decided modulo the reference prime 2⁶¹ − 1,
+        # so that every prime computes residues of the same canonical (rational) basis; a
+        # selection that is singular modulo P then fails in the exact solve.
+        if T <: Fp && T !== Fp{_P61}
+            return _lowering_module(rep, T; orthonormal = false, selection = _exact_selection(rep))
         end
         return _lowering_module(rep, T; orthonormal = false)
     elseif basis == :gelfand_tsetlin

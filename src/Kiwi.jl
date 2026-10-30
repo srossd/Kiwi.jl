@@ -2,6 +2,7 @@ module Kiwi
 
 using LinearAlgebra
 using SparseArrays
+using PrecompileTools: @setup_workload, @compile_workload
 
 # Export main types
 export LieAlgebra, Irrep, TensorProduct, WeightMultiplicity, Weight, Rep, Character
@@ -54,5 +55,6 @@ include("recoupling/gelfand_tsetlin.jl")
 include("recoupling/intertwiners.jl")
 include("recoupling/symbols.jl")
 include("recoupling/tensorkit.jl")
+include("recoupling/precompile.jl")
 
 end # module

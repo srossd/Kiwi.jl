@@ -114,15 +114,57 @@ F^{j_1 j_2 j_3}_j[j_{12}, j_{23}] = (-1)^{j_1+j_2+j_3+j}\sqrt{(2j_{12}+1)(2j_{23
   ``\sum |·|^2 = 1``.  For ``\mathfrak{su}(2)`` it is related to Wigner's symbol by
   ``\begin{pmatrix} j_1 & j_2 & j_3 \\ m_1 & m_2 & m_3 \end{pmatrix}_{\text{Wigner}} = (-1)^{j_1-j_2-j_3}\,(j_1\,j_2\,j_3)_{\text{Kiwi}}``.
 
-## Exact values
+## Exact values and the rational gauge
 
-With `T = Rational{BigInt}` everything is computed in exact arithmetic.  F- and
-R-symbols of multiplicity-free vertices are returned as [`SqrtRational`](@ref)
-values ``s\sqrt{q}``:
+With `T = Rational{BigInt}` everything is computed in exact arithmetic.  Unitary F-,
+R-, A- and B-symbols are returned as [`SqrtRational`](@ref) values ``s\sqrt{q}``
+(with or without outer multiplicity):
 
 ```@example rc
 q, qb = Irrep(su3, 1, 0), Irrep(su3, 0, 1)        # 3, 3̄
 fsymbol(q, q, qb, q, qb, a; T = Rational{BigInt})  # F^{3 3 3̄}_3[3̄, 8]
+```
+
+### Rational gauge
+
+For computations that must stay rational (for example modulo a prime), every
+symbol has a raw form, `normalized = false`, that takes no square roots:
+
+* the module bases are the unnormalised lowering bases, with Gram matrices given by
+  the Shapovalov form;
+* the vertices (intertwiners) ``X_1, …, X_N`` of ``c → a ⊗ b`` are mutually orthogonal
+  but unnormalised.  They are the unnormalised Gram–Schmidt vectors of the multiplicity
+  convention above, which are canonical rational functions of the labels.  Their
+  squared norms ``n_μ = ⟨X_μ, X_μ⟩`` (the theta values) are returned with every raw
+  symbol;
+* a raw symbol is the same contraction as the unitary one, evaluated on these
+  vertices.  The unitary symbol is the raw one divided by the square root of the
+  product of the norms² of the vertices involved, with ``\sqrt{\dim}`` factors for the
+  bending symbols.
+
+| call (`normalized = false`) | returns | unitary value |
+|---|---|---|
+| `fsymbol(a,b,c,d,e,f; T)` | `(F, norms = (nᵃᵇₑ, nᵉᶜ_d, nᵇᶜ_f, nᵃᶠ_d))` | ``F[μνκλ]/\sqrt{n_μ n_ν n_κ n_λ}`` |
+| `rsymbol(a,b,c; T)` | `(R, norms = (nᵃᵇ_c, nᵇᵃ_c))` | ``R[μν]/\sqrt{n_μ n_ν}`` |
+| `twoj(a; T)` | `(X, norm2, gram_a, gram_abar)` (the cup) | ``\sqrt{\dim a}\, R_a X R_{\bar a}^T/\sqrt{n}``, ``G = R^TR`` |
+| `asymbol(a,b,c; T)` | `(A, norms, scale2)` | ``\sqrt{\text{scale2}}\,A[μν]/\sqrt{n_{\rm cup} n_{\rm unit} n_μ n_ν}`` |
+| `bsymbol(a,b,c; T)` | `(B, norms, scale2)` | ``\sqrt{\text{scale2}}\,B[μν]/\sqrt{n_μ n_ν n_{\rm cup} n_{\rm unit}}`` |
+| `fusion_tensor(a,b,c; T)` | `(C, gram_a, gram_b, gram_c, norms2)` | ``(R_a ⊗ R_b)\, C_μ R_c^{-1}/\sqrt{n_μ}`` |
+
+The 1j symbol `onej(a)` is a sign computed once, exactly, and cached per irrep.
+
+### Prime fields
+
+The same code runs over `Kiwi.Fp{P}` (``P < 2^{62}`` prime), returning the residues of
+the raw rational data.  Every choice the construction makes (the basis of each weight
+space, and the projections that fix each multiplicity basis) is decided modulo the
+reference prime ``2^{61} − 1`` and reused for every other prime.  So all primes reduce
+the same rational numbers.  A prime that divides one of the Gram determinants
+involved raises an error instead of returning residues of a different gauge.
+
+```@example rc
+P = Kiwi.Fp{2305843009213693951}                    # 2⁶¹ − 1
+fsymbol(a, a, a, a, a, a; T = P, normalized = false).F[1, 1, 1, 1]
 ```
 
 ## TensorKit

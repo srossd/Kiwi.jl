@@ -467,4 +467,86 @@ end
         @test SqrtRational(-1, 3 // 4) == -SqrtRational(1, 3 // 4)
         @test float(SqrtRational(-1, 1 // 4)) == -0.5
     end
+
+    @testset "Rational gauge (raw symbols, any scalar type)" begin
+        Q = Rational{BigInt}
+        FP = RK.Fp{RK._P61}
+        modp(x, ::Type{F}) where {F} = F(numerator(x)) / F(denominator(x))
+        su3 = (Irrep(SU(3), 1, 0), Irrep(SU(3), 0, 1), Irrep(SU(3), 1, 1))
+        q, qb, a = su3
+        # raw F with full multiplicity: normalising by the vertex norms gives the unitary F
+        for (x1, x2, x3) in [(a, a, a), (q, a, qb), (Irrep(G_series(2), 1, 0), Irrep(G_series(2), 1, 0), Irrep(G_series(2), 0, 1))]
+            for (e, d, f) in fusion_channels(x1, x2, x3)
+                r = fsymbol(x1, x2, x3, d, e, f; T = Q, normalized = false)
+                @test r.F isa Array{Q, 4}
+                nA, nB, nC, nD = r.norms
+                Fu = [r.F[μ, ν, κ, λ] / sqrt(Float64(nA[μ] * nB[ν] * nC[κ] * nD[λ])) for μ in axes(r.F, 1),
+                      ν in axes(r.F, 2), κ in axes(r.F, 3), λ in axes(r.F, 4)]
+                @test Fu ≈ fsymbol(x1, x2, x3, d, e, f) atol = 1e-13
+                @test float.(fsymbol(x1, x2, x3, d, e, f; T = Q)) ≈ fsymbol(x1, x2, x3, d, e, f) atol = 1e-13
+                rp = fsymbol(x1, x2, x3, d, e, f; T = FP, normalized = false)
+                @test rp.F == modp.(r.F, FP)
+                @test all(rp.norms[i] == modp.(r.norms[i], FP) for i in 1:4)
+            end
+        end
+        # other primes reduce the same rational data, or fail loudly
+        r = fsymbol(a, a, a, a, a, a; T = Q, normalized = false)
+        for p in (11, 13, 1000003)
+            F = RK.Fp{p}
+            @test fsymbol(a, a, a, a, a, a; T = F, normalized = false).F == modp.(r.F, F)
+        end
+        for p in (3, 5, 7)
+            @test_throws ErrorException fsymbol(a, a, a, a, a, a; T = RK.Fp{p}, normalized = false)
+        end
+        @test_throws ArgumentError fsymbol(a, a, a, a, a, a; T = FP)
+        # raw R (vertex swap)
+        for c in fusions(a, a)
+            rr = rsymbol(a, a, c; T = Q, normalized = false)
+            Ru = [rr.R[μ, ν] / sqrt(Float64(rr.norms[1][μ] * rr.norms[2][ν])) for μ in axes(rr.R, 1), ν in axes(rr.R, 2)]
+            @test Ru ≈ rsymbol(a, a, c) atol = 1e-13
+            @test rsymbol(a, a, c; T = FP, normalized = false).R == modp.(rr.R, FP)
+        end
+        # cup (2j symbol) and the exact 1j symbol
+        for x in (q, a, Irrep(SU(3), 2, 1), Irrep(Sp(4), 1, 0), Irrep(G_series(2), 1, 0), Irrep(E_series(6), 1, 0, 0, 0, 0, 0))
+            cup = twoj(x; T = Q, normalized = false)
+            Ra = cholesky(Symmetric(Float64.(cup.gram_a))).U
+            Rb = cholesky(Symmetric(Float64.(cup.gram_abar))).U
+            @test sqrt(dimension(x)) * Ra * Float64.(cup.X) * Rb' / sqrt(Float64(cup.norm2)) ≈ twoj(x) atol = 1e-13
+            u = RK._unit(x.algebra)
+            @test onej(x) == sign(fsymbol(x, conjugate(x), x, x, u, u)[1])
+        end
+        # raw A and B (bending)
+        for (x, y) in ((q, a), (a, a), (Irrep(Sp(4), 1, 0), Irrep(Sp(4), 1, 0)))
+            for z in fusions(x, y)
+                A = asymbol(x, y, z; T = Q, normalized = false)
+                Au = [sqrt(Float64(A.scale2)) * A.A[μ, ν] /
+                      sqrt(Float64(A.norms[1] * A.norms[2] * A.norms[3][μ] * A.norms[4][ν])) for μ in axes(A.A, 1), ν in axes(A.A, 2)]
+                @test Au ≈ asymbol(x, y, z) atol = 1e-13
+                @test float.(asymbol(x, y, z; T = Q)) ≈ asymbol(x, y, z) atol = 1e-13
+                B = bsymbol(x, y, z; T = Q, normalized = false)
+                Bu = [sqrt(Float64(B.scale2)) * B.B[μ, ν] /
+                      sqrt(Float64(B.norms[1][μ] * B.norms[2][ν] * B.norms[3] * B.norms[4])) for μ in axes(B.B, 1), ν in axes(B.B, 2)]
+                @test Bu ≈ bsymbol(x, y, z) atol = 1e-13
+            end
+        end
+        # exact Clebsch–Gordan tensor with Gram matrices
+        for (x, y, z) in ((a, a, a), (q, qb, a), (Irrep(G_series(2), 1, 0), Irrep(G_series(2), 1, 0), Irrep(G_series(2), 0, 1)))
+            ft = fusion_tensor(x, y, z; T = Q, normalized = false)
+            Rx = cholesky(Symmetric(Float64.(ft.gram_a))).U
+            Ry = cholesky(Symmetric(Float64.(ft.gram_b))).U
+            Rz = cholesky(Symmetric(Float64.(ft.gram_c))).U
+            Cu = fusion_tensor(x, y, z)
+            dx, dy, dz = size(Cu, 1), size(Cu, 2), size(Cu, 3)
+            for μ in axes(Cu, 4)
+                M = kron(Ry, Rx) * reshape(Float64.(ft.C[:, :, :, μ]), dx * dy, dz) / Rz / sqrt(Float64(ft.norms2[μ]))
+                @test M ≈ reshape(Cu[:, :, :, μ], dx * dy, dz) atol = 1e-13
+            end
+            @test fusion_tensor(x, y, z; T = FP, normalized = false).C == modp.(ft.C, FP)
+        end
+        @test_throws ArgumentError fusion_tensor(a, a, a; T = Q)
+        # Float64 vertex selection at large su(2) spins
+        j(x) = Irrep(SU(2), x)
+        @test fsymbol(j(25), j(27), j(27), j(31), j(34), j(46))[1] ≈
+              Float64(fsymbol(j(25), j(27), j(27), j(31), j(34), j(46); T = BigFloat)[1]) atol = 1e-13
+    end
 end
