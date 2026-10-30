@@ -9,4 +9,5 @@ using Kiwi
     include("test_tensor_products.jl")
     include("test_symmetric.jl")
     include("test_fast_algorithms.jl")
+    include("test_recoupling.jl")
 end
