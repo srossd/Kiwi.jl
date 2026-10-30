@@ -21,6 +21,7 @@ makedocs(
             "Characters" => "guide/characters.md",
             "Tensor Products" => "guide/tensor_products.md",
             "Weyl Groups" => "guide/weyl_groups.md",
+            "Recoupling Coefficients" => "guide/recoupling.md",
         ],
         "API Reference" => [
             "Types" => "api/types.md",
@@ -29,6 +30,7 @@ makedocs(
             "Characters" => "api/characters.md",
             "Tensor Products" => "api/tensor_products.md",
             "Weyl Groups" => "api/weyl.md",
+            "Recoupling" => "api/recoupling.md",
         ],
     ],
 )
