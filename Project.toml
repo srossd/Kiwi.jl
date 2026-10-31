@@ -5,12 +5,26 @@ version = "0.1.0"
 
 [deps]
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+PrecompileTools = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
+SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+
+[weakdeps]
+TensorKitSectors = "13a9c161-d5da-41f0-bcbd-e1a08ae0647f"
+
+[extensions]
+KiwiTensorKitSectorsExt = "TensorKitSectors"
 
 [extras]
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+TensorKitSectors = "13a9c161-d5da-41f0-bcbd-e1a08ae0647f"
+TensorOperations = "6aa20fa7-93e2-5fca-9bc0-fbd0db3c71a2"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+TestExtras = "5ed8adda-3752-4e41-b88a-e8b09835ee3a"
 
 [targets]
-test = ["Test"]
+test = ["Random", "TensorKitSectors", "TensorOperations", "Test", "TestExtras"]
 
 [compat]
-julia = "1.6"
+PrecompileTools = "1"
+TensorKitSectors = "0.3"
+julia = "1.9"

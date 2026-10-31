@@ -1,6 +1,8 @@
 module Kiwi
 
 using LinearAlgebra
+using SparseArrays
+using PrecompileTools: @setup_workload, @compile_workload
 
 # Export main types
 export LieAlgebra, Irrep, TensorProduct, WeightMultiplicity, Weight, Rep, Character
@@ -28,6 +30,12 @@ export longest_weyl_word
 export irreps, irreps_up_to_dim, clear_irreps_cache!
 export ⊕, ⊗
 
+# Explicit modules and recoupling coefficients
+export irrep_module, generators, basis_weights, gt_patterns, clear_recoupling_cache!
+export intertwiner, fusion_tensor
+export nsymbol, fsymbol, rsymbol, asymbol, bsymbol, onej, twoj, threej, SqrtRational
+export tensorkit_sector
+
 # Include source files
 include("lie_algebras.jl")
 include("weights.jl")
@@ -41,5 +49,12 @@ include("reducible.jl")
 include("symmetric.jl")
 include("plethysms.jl")
 include("cosh_product.jl")
+include("recoupling/linalg.jl")
+include("recoupling/modules.jl")
+include("recoupling/gelfand_tsetlin.jl")
+include("recoupling/intertwiners.jl")
+include("recoupling/symbols.jl")
+include("recoupling/tensorkit.jl")
+include("recoupling/precompile.jl")
 
 end # module
